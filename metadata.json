@@ -1,0 +1,6 @@
+{
+  "name": "NourishRoute - Smart Food Redistribution Platform",
+  "description": "Hyper-local surplus food batching and multi-stop collection router connecting campus food providers with nightly NGO feeding operations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
