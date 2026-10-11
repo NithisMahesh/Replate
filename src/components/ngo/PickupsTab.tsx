@@ -91,7 +91,7 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
       <EmptyState
         icon={<Truck className="h-8 w-8 text-slate-400" />}
         title="No Accepted Trips Yet"
-        description="Generate and accept a collection trip from the Plan tab to start driver pickups."
+        description="Accept a collection trip in Plan to start driver pickups."
         actionLabel="Go to Plan Tab"
         onAction={onGoToPlanTab}
       />
@@ -206,7 +206,34 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                 <span>{isMapSelected ? 'Viewed on Map' : 'View Path'}</span>
               </button>
             )}
+            {/* Vehicle Status Chip */}
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
+              <Truck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>{isCompleted ? 'Van: Idle' : isQueued ? 'Van: In Queue' : 'Van: On Route'}</span>
+            </span>
             <StatusChip status={trip.status} />
+          </div>
+        </div>
+
+        {/* Remaining Distance & ETA as Two Numbers with Icons */}
+        <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+              <Navigation className="w-5 h-5 text-emerald-700" />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Remaining Dist</span>
+              <span className="text-base font-extrabold text-slate-900 font-mono">{trip.route.distanceKm} km</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estimated ETA</span>
+              <span className="text-base font-extrabold text-slate-900 font-mono">~{trip.route.durationMins} mins</span>
+            </div>
           </div>
         </div>
 
@@ -286,8 +313,8 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
           </div>
         )}
 
-        {/* Stops Stepper */}
-        <div className="space-y-3 pt-1">
+        {/* Vertical Stop Stepper with Large Buttons */}
+        <div className="relative pl-6 sm:pl-8 before:absolute before:left-3 sm:before:left-4 before:top-6 before:bottom-6 before:w-0.5 before:bg-slate-200 space-y-4 pt-2">
           {stops.map((stop, idx) => {
             const isStopCollected = stop.status === 'Collected';
             const isStopFailed = stop.status === 'Failed';
@@ -301,7 +328,7 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
               <div
                 key={stop.donationId}
                 id={`pickup-stop-${stop.donationId}`}
-                className={`relative bg-white rounded-xl border p-4 shadow-2xs space-y-3 transition-all duration-150 ${
+                className={`relative bg-white rounded-2xl border p-4 sm:p-5 shadow-2xs space-y-3 transition-all duration-150 ${
                   isDonationHighlighted
                     ? 'border-emerald-500 ring-2 ring-emerald-500/30 shadow-md bg-emerald-50/20'
                     : isStopCollected
@@ -315,79 +342,68 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                     : 'border-slate-200/80'
                 }`}
               >
+                {/* Stepper Node Icon on vertical line */}
+                <div
+                  className={`absolute -left-6 sm:-left-8 top-5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 border-white shadow-xs shrink-0 ${
+                    isStopCollected
+                      ? 'bg-emerald-600 text-white'
+                      : isStopFailed
+                      ? 'bg-rose-600 text-white'
+                      : isStopArrived
+                      ? 'bg-sky-600 text-white'
+                      : isStopEnRoute
+                      ? 'bg-amber-500 text-slate-950 font-black'
+                      : 'bg-slate-800 text-white'
+                  }`}
+                >
+                  {idx + 1}
+                </div>
+
                 {/* Stop Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                  <div className="flex items-start gap-2.5 min-w-0">
-                    <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                        isStopCollected
-                          ? 'bg-emerald-600 text-white'
-                          : isStopFailed
-                          ? 'bg-rose-600 text-white'
-                          : isStopArrived
-                          ? 'bg-sky-600 text-white'
-                          : isStopEnRoute
-                          ? 'bg-amber-500 text-slate-950 font-black'
-                          : 'bg-slate-800 text-white'
-                      }`}
-                    >
-                      {idx + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-sm font-bold text-slate-900 truncate">
-                        {stop.provider.name}
-                      </h4>
-                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 truncate">
-                        <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span>{stop.provider.address}</span>
-                      </p>
-                    </div>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-slate-900 truncate">
+                      {stop.provider.name}
+                    </h4>
+                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 truncate">
+                      <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
+                      <span>{stop.provider.address}</span>
+                    </p>
                   </div>
                   <StatusChip status={stop.status} />
                 </div>
 
-                {/* Stop Info Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                    <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">
-                      Item
-                    </span>
-                    <span className="font-semibold text-slate-900 text-xs truncate block">
-                      {stop.donation.foodItem}
-                    </span>
-                  </div>
-                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                    <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">
-                      Confirmed
-                    </span>
-                    <span className="font-bold text-emerald-700 text-xs block">
-                      {stop.confirmedPortions} portions
-                    </span>
-                  </div>
-                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 col-span-2 sm:col-span-1">
-                    <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">
-                      Deadline
-                    </span>
-                    <span className="font-semibold text-slate-700 text-xs block">
-                      {stop.donation.collectionDeadline}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Reusable Donation Timeline */}
-                <div className="pt-0.5">
-                  <DonationTimeline donation={stop.donation} events={eventLog} compact={true} />
-                </div>
-
-                {/* OTP Handover */}
-                <div className="flex items-center justify-between text-xs bg-slate-50 border border-slate-200/80 rounded-lg p-2">
-                  <span className="text-slate-600 flex items-center gap-1.5 font-medium">
-                    <ShieldCheck className="h-4 w-4 text-emerald-600" /> Donor Handover OTP:
+                {/* Stop Info Chips */}
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-semibold text-slate-900 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
+                    {stop.donation.foodItem}
                   </span>
-                  <span className="font-mono font-bold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200 text-xs">
-                    {stop.donation.verificationOtp}
+                  <span className="font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg font-mono">
+                    {stop.confirmedPortions} portions
+                  </span>
+                  <span className="text-slate-600 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-slate-400" />
+                    <span>Deadline: {stop.donation.collectionDeadline}</span>
                   </span>
                 </div>
+
+                {/* Collapsed Details: OTP & Timeline */}
+                <details className="text-xs pt-1 border-t border-slate-100">
+                  <summary className="font-semibold text-slate-500 hover:text-slate-900 cursor-pointer flex items-center gap-1.5 py-1">
+                    <span>Show OTP & timeline details</span>
+                  </summary>
+                  <div className="space-y-2.5 pt-2">
+                    <div className="flex items-center justify-between text-xs bg-slate-50 border border-slate-200/80 rounded-lg p-2.5">
+                      <span className="text-slate-600 flex items-center gap-1.5 font-medium">
+                        <ShieldCheck className="h-4 w-4 text-emerald-600" /> Donor Handover OTP:
+                      </span>
+                      <span className="font-mono font-bold text-emerald-800 bg-white px-2.5 py-0.5 rounded border border-emerald-200 text-xs">
+                        {stop.donation.verificationOtp}
+                      </span>
+                    </div>
+                    <DonationTimeline donation={stop.donation} events={eventLog} compact={true} />
+                  </div>
+                </details>
 
                 {/* Discrepancy Note on Collected */}
                 {isStopCollected && (
@@ -414,17 +430,17 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                   </div>
                 )}
 
-                {/* Stop Action Buttons (Active trips only) */}
+                {/* Stop Action Buttons: min-h-[44px] touch targets */}
                 {!isStopCollected && !isStopFailed && !isQueued && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
                     <div className="flex items-center gap-2">
                       {isStopPending && (
                         <Button
                           variant="primary"
-                          size="sm"
-                          icon={<Truck className="h-3.5 w-3.5" />}
+                          size="md"
+                          icon={<Truck className="h-4 w-4" />}
                           onClick={() => handleEnRoute(trip.id, stop)}
-                          className="!bg-amber-500 hover:!bg-amber-600 !border-amber-600 text-slate-950 font-bold cursor-pointer"
+                          className="!bg-amber-500 hover:!bg-amber-600 !border-amber-600 text-slate-950 font-bold min-h-[44px] px-4 cursor-pointer"
                         >
                           En route
                         </Button>
@@ -432,10 +448,10 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                       {isStopEnRoute && (
                         <Button
                           variant="primary"
-                          size="sm"
-                          icon={<MapPin className="h-3.5 w-3.5" />}
+                          size="md"
+                          icon={<MapPin className="h-4 w-4" />}
                           onClick={() => handleArrived(trip.id, stop)}
-                          className="!bg-sky-600 hover:!bg-sky-700 !border-sky-700 text-white font-bold cursor-pointer"
+                          className="!bg-sky-600 hover:!bg-sky-700 !border-sky-700 text-white font-bold min-h-[44px] px-4 cursor-pointer"
                         >
                           Arrived
                         </Button>
@@ -443,10 +459,10 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                       {isStopArrived && (
                         <Button
                           variant="primary"
-                          size="sm"
-                          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                          size="md"
+                          icon={<CheckCircle2 className="h-4 w-4" />}
                           onClick={() => setCollectingStop({ stop, collectionId: trip.id })}
-                          className="cursor-pointer font-bold"
+                          className="min-h-[44px] px-5 font-bold cursor-pointer"
                         >
                           Collected
                         </Button>
@@ -456,7 +472,7 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                       variant="ghost"
                       size="sm"
                       onClick={() => setFailingStop({ stop, collectionId: trip.id })}
-                      className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer text-xs"
+                      className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer text-xs min-h-[44px]"
                     >
                       Report failed pickup
                     </Button>
@@ -581,24 +597,25 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
         </section>
       )}
 
-      {/* SECTION 3: COMPLETED TRIPS */}
+      {/* SECTION 3: COMPLETED TRIPS (COLLAPSED BY DEFAULT) */}
       {completed.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+        <details className="group bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+          <summary className="flex items-center justify-between cursor-pointer list-none font-bold text-slate-800">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
               <h3 className="text-base font-bold text-slate-700">
                 Completed Trips ({completed.length})
               </h3>
             </div>
-            <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
-              Finished
+            <span className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl border border-slate-200 transition-all">
+              <span className="group-open:hidden">▼ Show Completed ({completed.length})</span>
+              <span className="hidden group-open:inline">▲ Hide Completed</span>
             </span>
-          </div>
-          <div className="space-y-5">
+          </summary>
+          <div className="space-y-5 pt-4 mt-3 border-t border-slate-100">
             {completed.map(renderTripCard)}
           </div>
-        </section>
+        </details>
       )}
 
       {/* MODALS */}

@@ -22,6 +22,7 @@ export const AmountStepperSheet: React.FC<AmountStepperSheetProps> = ({
   mealSlot,
 }) => {
   const [amount, setAmount] = useState(initialAmount);
+  const [isSaving, setIsSaving] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -32,14 +33,20 @@ export const AmountStepperSheet: React.FC<AmountStepperSheetProps> = ({
     setAmount((prev) => Math.max(1, prev + delta));
   };
 
-  const handleSave = () => {
-    onSave(amount);
-    toast.success(
-      mealSlot
-        ? `Updated ${getMealSlotLabel(mealSlot).toLowerCase()} surplus to ${amount} portions`
-        : `Updated surplus to ${amount} portions`
-    );
-    onClose();
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await onSave(amount);
+      toast.success(
+        mealSlot
+          ? `Updated ${getMealSlotLabel(mealSlot).toLowerCase()} surplus to ${amount} portions`
+          : `Updated surplus to ${amount} portions`
+      );
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -53,7 +60,7 @@ export const AmountStepperSheet: React.FC<AmountStepperSheetProps> = ({
           : 'Update portions available for pickup'
       }
       footer={
-        <Button variant="primary" size="lg" fullWidth onClick={handleSave}>
+        <Button variant="primary" size="lg" fullWidth loading={isSaving} disabled={isSaving || amount < 1} onClick={handleSave}>
           Save {amount} portions
         </Button>
       }

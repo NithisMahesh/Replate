@@ -4,7 +4,7 @@ import { Card } from '../shared/Card';
 import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
 import { DEFAULT_PLANNER_CONFIG } from '../../config/plannerConfig';
-import { ShieldCheck, Clock, RotateCcw, Check, MapPin } from 'lucide-react';
+import { ShieldCheck, Clock, RotateCcw, Check, MapPin, AlertCircle } from 'lucide-react';
 import { DonationQrCard } from './DonationQrCard';
 
 export const NgoSettingsTab: React.FC = () => {
@@ -17,22 +17,59 @@ export const NgoSettingsTab: React.FC = () => {
   const [handoverBuffer, setHandoverBuffer] = useState(plannerConfig.finalHandoverBufferMins);
   const [trafficSpeed, setTrafficSpeed] = useState(plannerConfig.cityTrafficSpeedKmh);
   const [vanCapacity, setVanCapacity] = useState(plannerConfig.vanCapacityPortions);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     setServiceRadiusKm(ngo.serviceRadiusKm ?? 5.0);
   }, [ngo.serviceRadiusKm]);
 
-  const handleSave = (e: React.FormEvent) => {
+  // Inline Validation while typing
+  const radiusError =
+    serviceRadiusKm < 0.5 || serviceRadiusKm > 50
+      ? 'Radius must be between 0.5 and 50 km. Enter a valid distance.'
+      : null;
+  const minViableError =
+    minViablePortions < 5 || minViablePortions > 100
+      ? 'Threshold must be between 5 and 100 portions. Adjust quantity.'
+      : null;
+  const handlingError =
+    handlingTime < 1 || handlingTime > 60
+      ? 'Handling time must be between 1 and 60 minutes.'
+      : null;
+  const bufferError =
+    handoverBuffer < 5 || handoverBuffer > 120
+      ? 'Safety buffer must be between 5 and 120 minutes.'
+      : null;
+  const speedError =
+    trafficSpeed < 5 || trafficSpeed > 60
+      ? 'Traffic speed must be between 5 and 60 km/h.'
+      : null;
+  const capacityError =
+    vanCapacity < 10 || vanCapacity > 200
+      ? 'Van capacity must be between 10 and 200 portions.'
+      : null;
+
+  const hasErrors = Boolean(
+    radiusError || minViableError || handlingError || bufferError || speedError || capacityError
+  );
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateNgoSettings({ serviceRadiusKm });
-    updatePlannerConfig({
-      minViablePortions,
-      handlingTimePerStopMins: handlingTime,
-      finalHandoverBufferMins: handoverBuffer,
-      cityTrafficSpeedKmh: trafficSpeed,
-      vanCapacityPortions: vanCapacity,
-    });
-    toast.success('Updated NGO collection planner and service radius settings!');
+    if (hasErrors || isSaving) return;
+    setIsSaving(true);
+    try {
+      updateNgoSettings({ serviceRadiusKm });
+      updatePlannerConfig({
+        minViablePortions,
+        handlingTimePerStopMins: handlingTime,
+        finalHandoverBufferMins: handoverBuffer,
+        cityTrafficSpeedKmh: trafficSpeed,
+        vanCapacityPortions: vanCapacity,
+      });
+      toast.success('Updated NGO collection planner and service radius settings!');
+    } finally {
+      setTimeout(() => setIsSaving(false), 300);
+    }
   };
 
   const handleReset = () => {
@@ -86,11 +123,20 @@ export const NgoSettingsTab: React.FC = () => {
                 max="50"
                 step="0.5"
                 value={serviceRadiusKm}
-                onChange={(e) => setServiceRadiusKm(Math.max(0.5, parseFloat(e.target.value) || 0.5))}
-                className="w-32 px-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                onChange={(e) => setServiceRadiusKm(parseFloat(e.target.value) || 0)}
+                className={`w-32 px-3 py-2 text-sm font-bold bg-white border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900 ${
+                  radiusError ? 'border-rose-400 focus:ring-rose-400 bg-rose-50/20' : 'border-slate-200'
+                }`}
+                aria-invalid={Boolean(radiusError)}
               />
               <span className="text-xs font-medium text-slate-600">km radius (default: 5 km)</span>
             </div>
+            {radiusError && (
+              <div className="flex items-center gap-1.5 text-xs text-rose-600 pt-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{radiusError}</span>
+              </div>
+            )}
           </div>
 
           {/* RULE 1: Minimum Viable Quantity */}
@@ -109,13 +155,22 @@ export const NgoSettingsTab: React.FC = () => {
                 id="min-viable"
                 type="number"
                 min="1"
-                max="60"
+                max="100"
                 value={minViablePortions}
-                onChange={(e) => setMinViablePortions(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-32 px-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                onChange={(e) => setMinViablePortions(parseInt(e.target.value) || 0)}
+                className={`w-32 px-3 py-2 text-sm font-bold bg-white border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900 ${
+                  minViableError ? 'border-rose-400 focus:ring-rose-400 bg-rose-50/20' : 'border-slate-200'
+                }`}
+                aria-invalid={Boolean(minViableError)}
               />
               <span className="text-xs font-medium text-slate-600">meals per trip (default: 20)</span>
             </div>
+            {minViableError && (
+              <div className="flex items-center gap-1.5 text-xs text-rose-600 pt-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{minViableError}</span>
+              </div>
+            )}
           </div>
 
           {/* RULE 2: Food Safety Timing Parameters */}
@@ -138,13 +193,20 @@ export const NgoSettingsTab: React.FC = () => {
                   <input
                     type="number"
                     min="1"
-                    max="30"
+                    max="60"
                     value={handlingTime}
-                    onChange={(e) => setHandlingTime(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-24 px-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                    onChange={(e) => setHandlingTime(parseInt(e.target.value) || 0)}
+                    className={`w-24 px-3 py-2 text-sm font-bold bg-white border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900 ${
+                      handlingError ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
+                    }`}
                   />
                   <span className="text-xs text-slate-500">min (default: 5)</span>
                 </div>
+                {handlingError && (
+                  <p className="text-xs text-rose-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" /> {handlingError}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -155,13 +217,20 @@ export const NgoSettingsTab: React.FC = () => {
                   <input
                     type="number"
                     min="1"
-                    max="60"
+                    max="120"
                     value={handoverBuffer}
-                    onChange={(e) => setHandoverBuffer(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-24 px-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                    onChange={(e) => setHandoverBuffer(parseInt(e.target.value) || 0)}
+                    className={`w-24 px-3 py-2 text-sm font-bold bg-white border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900 ${
+                      bufferError ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
+                    }`}
                   />
                   <span className="text-xs text-slate-500">min (default: 10)</span>
                 </div>
+                {bufferError && (
+                  <p className="text-xs text-rose-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" /> {bufferError}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -171,14 +240,21 @@ export const NgoSettingsTab: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
-                    min="10"
+                    min="5"
                     max="60"
                     value={trafficSpeed}
-                    onChange={(e) => setTrafficSpeed(Math.max(10, parseInt(e.target.value) || 25))}
-                    className="w-24 px-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                    onChange={(e) => setTrafficSpeed(parseInt(e.target.value) || 0)}
+                    className={`w-24 px-3 py-2 text-sm font-bold bg-white border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900 ${
+                      speedError ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
+                    }`}
                   />
                   <span className="text-xs text-slate-500">km/h (default: 25)</span>
                 </div>
+                {speedError && (
+                  <p className="text-xs text-rose-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" /> {speedError}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -188,26 +264,42 @@ export const NgoSettingsTab: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
-                    min="20"
-                    max="150"
+                    min="10"
+                    max="200"
                     value={vanCapacity}
-                    onChange={(e) => setVanCapacity(Math.max(20, parseInt(e.target.value) || 60))}
-                    className="w-24 px-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                    onChange={(e) => setVanCapacity(parseInt(e.target.value) || 0)}
+                    className={`w-24 px-3 py-2 text-sm font-bold bg-white border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-900 ${
+                      capacityError ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
+                    }`}
                   />
                   <span className="text-xs text-slate-500">portions (default: 60)</span>
                 </div>
+                {capacityError && (
+                  <p className="text-xs text-rose-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" /> {capacityError}
+                  </p>
+                )}
               </div>
             </div>
           </div>
 
-          <div className="pt-2 flex justify-end">
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-3">
+            {hasErrors && (
+              <span className="text-xs text-rose-600 font-semibold flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>Fix highlighted parameters above</span>
+              </span>
+            )}
             <Button
               type="submit"
               variant="primary"
               size="md"
+              disabled={hasErrors || isSaving}
+              isLoading={isSaving}
               icon={<Check className="h-4 w-4" />}
+              className="min-h-[44px] cursor-pointer"
             >
-              Save Settings
+              {isSaving ? 'Saving...' : 'Save Settings'}
             </Button>
           </div>
         </form>

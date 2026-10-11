@@ -23,6 +23,7 @@ import {
   Users,
   Clock,
   Inbox,
+  AlertTriangle,
 } from 'lucide-react';
 
 export type NgoTab = 'plan' | 'incoming' | 'pickups' | 'impact' | 'settings';
@@ -141,6 +142,31 @@ export const NgoShell: React.FC = () => {
   useEffect(() => {
     setSelectedDonationIds(mealPool.map((d) => d.id));
   }, [mealPoolIdsKey, activeMealSlot]);
+
+  // Live timer for urgent deadlines
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Urgent deadlines under 1 hour (< 60 mins remaining)
+  const urgentDeadlines = useMemo(() => {
+    return donations.filter((d) => {
+      if (['Collected', 'Received', 'Distributed', 'Expired', 'Rejected'].includes(d.status)) {
+        return false;
+      }
+      const diff = d.deadlineTimestamp - now;
+      return diff > 0 && diff <= 60 * 60 * 1000;
+    });
+  }, [donations, now]);
+
+  // Total trips on hold across planner and queued collections
+  const onHoldTripsCount = useMemo(() => {
+    const planOnHold = collectionPlan?.onHoldTrips?.length ?? 0;
+    const queuedTrips = collections.filter((c) => c.status === 'Queued').length;
+    return planOnHold + queuedTrips;
+  }, [collectionPlan, collections]);
 
   const handleSelectMealSlot = (slot: MealSlot) => {
     setActiveMealSlot(slot);
@@ -323,6 +349,104 @@ export const NgoShell: React.FC = () => {
 
       {/* Main NGO Dashboard View */}
       <main className="flex-1 w-full min-w-0 space-y-6">
+        {/* "NOW" Strip at the top of every NGO tab */}
+        <section
+          aria-label="Live operations alert strip"
+          className="bg-white rounded-2xl border border-slate-200/80 p-3 sm:p-3.5 shadow-xs flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider uppercase bg-slate-900 text-white shadow-2xs">
+              NOW
+            </span>
+            <span className="text-xs font-bold text-slate-700 hidden sm:inline">
+              Live Operations:
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Chip 1: New Submissions */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('incoming')}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all min-h-[44px] cursor-pointer ${
+                unseenSubmissionsCount > 0 || submittedQrDonations.length > 0
+                  ? 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100 hover:border-blue-300'
+                  : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+              }`}
+              aria-label={`New submissions: ${submittedQrDonations.length}`}
+            >
+              <Inbox className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>New Submissions</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                  unseenSubmissionsCount > 0
+                    ? 'bg-rose-500 text-white animate-pulse'
+                    : 'bg-blue-200 text-blue-900'
+                }`}
+              >
+                {submittedQrDonations.length}
+              </span>
+            </button>
+
+            {/* Chip 2: Trips On Hold */}
+            <button
+              type="button"
+              onClick={() => {
+                if (collections.some((c) => c.status === 'Queued')) {
+                  setActiveTab('pickups');
+                } else {
+                  setActiveTab('plan');
+                }
+              }}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all min-h-[44px] cursor-pointer ${
+                onHoldTripsCount > 0
+                  ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+                  : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+              }`}
+              aria-label={`Trips on hold: ${onHoldTripsCount}`}
+            >
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Trips on Hold</span>
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-200 text-amber-900">
+                {onHoldTripsCount}
+              </span>
+            </button>
+
+            {/* Chip 3: Deadlines Under 1 Hour */}
+            <button
+              type="button"
+              onClick={() => {
+                const hasQrUrgent = submittedQrDonations.some(
+                  (d) => d.deadlineTimestamp - now <= 3600000 && d.deadlineTimestamp > now
+                );
+                if (hasQrUrgent) {
+                  setActiveTab('incoming');
+                } else {
+                  setActiveTab('plan');
+                }
+              }}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all min-h-[44px] cursor-pointer ${
+                urgentDeadlines.length > 0
+                  ? 'bg-rose-50 text-rose-900 border border-rose-300 hover:bg-rose-100 animate-pulse'
+                  : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+              }`}
+              aria-label={`Deadlines under 1 hour: ${urgentDeadlines.length}`}
+            >
+              <Clock className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>Deadlines &lt; 1h</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                  urgentDeadlines.length > 0
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {urgentDeadlines.length}
+              </span>
+            </button>
+          </div>
+        </section>
+
         {/* TAB 1: PLAN */}
         {activeTab === 'plan' && (
           <div className="space-y-6">

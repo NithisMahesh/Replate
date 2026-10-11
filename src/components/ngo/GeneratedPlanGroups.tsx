@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { CollectionPlan, TripPlan, ExcludedDonationRecord, Collection } from '../../types/surplusLink';
 import { CheckCircle2, Clock, AlertTriangle, ShieldAlert, Check, X } from 'lucide-react';
 import { Button } from '../shared/Button';
@@ -15,6 +15,17 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
   collections,
   onAcceptTrip,
 }) => {
+  const [acceptingTripNumber, setAcceptingTripNumber] = useState<number | null>(null);
+
+  const handleAccept = async (trip: TripPlan) => {
+    setAcceptingTripNumber(trip.tripNumber);
+    try {
+      await onAcceptTrip(trip);
+    } finally {
+      setAcceptingTripNumber(null);
+    }
+  };
+
   const dispatchableTrips = plan.dispatchableTrips || plan.trips.filter((t) => t.dispatchStatus === 'DISPATCHABLE');
   const onHoldTrips = plan.onHoldTrips || plan.trips.filter((t) => t.dispatchStatus === 'ON_HOLD');
   const excludedDonations = plan.excludedDonations || [];
@@ -47,7 +58,7 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
               return (
                 <div
                   key={trip.tripNumber}
-                  className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-xs space-y-4"
+                  className="bg-emerald-50/20 rounded-2xl border-2 border-emerald-300/80 p-5 sm:p-6 shadow-xs space-y-4"
                 >
                   {/* Trip Header */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -83,7 +94,9 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
                           variant="primary"
                           size="md"
                           icon={<CheckCircle2 className="h-4 w-4" />}
-                          onClick={() => onAcceptTrip(trip)}
+                          loading={acceptingTripNumber === trip.tripNumber}
+                          disabled={acceptingTripNumber !== null}
+                          onClick={() => handleAccept(trip)}
                           className="min-h-[42px] cursor-pointer"
                         >
                           Accept & dispatch
@@ -133,12 +146,14 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
                                 {stop.collectionDeadline}
                               </span>
                               {isMet ? (
-                                <span className="text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded-md font-bold text-[11px] flex items-center gap-1">
-                                  <Check className="h-3 w-3" /> Deadline Met
+                                <span className="text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                  <span>Deadline Met</span>
                                 </span>
                               ) : (
-                                <span className="text-rose-700 bg-rose-100/70 border border-rose-200 px-2 py-0.5 rounded-md font-bold text-[11px] flex items-center gap-1">
-                                  <X className="h-3 w-3" /> Deadline Risk
+                                <span className="text-rose-800 bg-rose-100/80 border border-rose-300 px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                  <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                                  <span>Deadline Risk</span>
                                 </span>
                               )}
                             </div>
@@ -196,27 +211,47 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      disabled
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75"
-                    >
-                      On hold: {trip.totalPortions} of {minMeals} meals needed
-                    </button>
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-xs text-amber-800 font-semibold">
+                        Needs {minMeals} meals, has {trip.totalPortions}
+                      </span>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled
+                        className="opacity-70 cursor-not-allowed bg-slate-100 text-slate-500 border-slate-200"
+                      >
+                        Accept & dispatch
+                      </Button>
+                    </div>
                   </div>
 
-                  {/* Progress Bar */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-slate-600 font-semibold">
-                      <span>Threshold Progress</span>
-                      <span>{percent}% ({trip.totalPortions}/{minMeals} meals)</span>
+                  {/* Progress Bar: on-hold trips as a "12 / 20 meals" progress bar */}
+                  <div className="space-y-1.5 bg-amber-50/60 p-3 rounded-xl border border-amber-200/80">
+                    <div className="flex justify-between text-xs text-amber-950 font-bold">
+                      <span className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Threshold Progress</span>
+                      </span>
+                      <span className="font-mono text-xs text-amber-900 font-extrabold">
+                        {trip.totalPortions} / {minMeals} meals ({percent}%)
+                      </span>
                     </div>
-                    <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-3 w-full bg-amber-100 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-amber-500 rounded-full transition-all duration-300"
                         style={{ width: `${percent}%` }}
                       />
                     </div>
+                    <details className="text-xs pt-1">
+                      <summary className="text-amber-800 font-bold cursor-pointer hover:underline">
+                        Why is this on hold?
+                      </summary>
+                      <p className="mt-1 text-slate-600 text-[11px] leading-relaxed">
+                        Trips require at least {minMeals} meals to unlock economically viable dispatch.
+                        When more nearby donations arrive, this trip unlocks automatically.
+                      </p>
+                    </details>
                   </div>
 
                   {/* Stops preview */}
@@ -269,23 +304,30 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
             {excludedDonations.map((ex) => (
               <div
                 key={ex.donationId}
-                className="bg-rose-50/70 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 text-xs text-rose-950 space-y-2 shadow-xs"
+                className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4 text-xs space-y-2.5 shadow-xs"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
-                    <h4 className="font-bold text-slate-900 text-sm truncate">{ex.providerName}</h4>
-                  </div>
-                  <span className="font-mono font-bold text-rose-800 bg-white px-2 py-0.5 rounded border border-rose-200 text-xs">
-                    {ex.portions} portions
+                {/* Red chip with icon */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                    <ShieldAlert className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                    <span>{ex.providerName} • {ex.portions} portions</span>
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-white px-2 py-0.5 rounded border border-rose-200">
+                    Excluded
                   </span>
                 </div>
-                <p className="font-semibold text-rose-900 text-xs leading-relaxed">
+                <p className="text-xs font-bold text-rose-950">
                   {ex.reasonLabel}
                 </p>
-                <p className="text-[11px] text-rose-700 leading-normal">
-                  {ex.detail}
-                </p>
+                {/* Full reason in expander */}
+                <details className="group text-xs pt-0.5">
+                  <summary className="text-rose-800 font-bold cursor-pointer hover:underline flex items-center gap-1">
+                    <span>Full safety details</span>
+                  </summary>
+                  <p className="mt-1.5 p-2.5 bg-white rounded-xl border border-rose-200 text-rose-900 text-[11px] leading-relaxed">
+                    {ex.detail}
+                  </p>
+                </details>
               </div>
             ))}
           </div>

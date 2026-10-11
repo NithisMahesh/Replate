@@ -1,7 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSurplusLink } from '../../context/SurplusLinkContext';
-import { InAppNotification } from '../../types/surplusLink';
 import {
   Bell,
   X,
@@ -14,11 +12,16 @@ import {
   Store,
   HeartHandshake,
   CheckCheck,
+  Languages,
 } from 'lucide-react';
 import { DemoDrawer } from './DemoDrawer';
+import { useLanguage } from '../../i18n/LanguageContext';
+import { useSurplusLink } from '../../context/SurplusLinkContext';
+import { InAppNotification } from '../../types/surplusLink';
 
 export const TopBar: React.FC = () => {
   const navigate = useNavigate();
+  const { language, toggleLanguage, t } = useLanguage();
   const {
     session,
     logout,
@@ -32,6 +35,18 @@ export const TopBar: React.FC = () => {
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isDemoDrawerOpen, setIsDemoDrawerOpen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(() =>
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLastUpdated(
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      );
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Scoped notifications: providers only get their own; NGO gets NGO notifications
   const roleNotifications = notifications.filter((n) => {
@@ -85,18 +100,39 @@ export const TopBar: React.FC = () => {
                 </div>
               </div>
 
-              {/* Small "Live" multi-tab sync indicator */}
-              <div
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full text-[11px] font-bold shadow-2xs"
-                title="Real-time multi-tab cross-sync active via BroadcastChannel"
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Live</span>
+              {/* Live Dot Sync Indicator & Last Updated Time */}
+              <div className="flex items-center gap-2">
+                <div
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full text-[11px] font-bold shadow-2xs"
+                  title="Real-time multi-tab cross-sync active via BroadcastChannel"
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>{t.live}</span>
+                </div>
+                <span className="text-[11px] text-slate-500 hidden md:inline font-mono">
+                  {t.lastUpdated}: {lastUpdated}
+                </span>
               </div>
             </div>
 
-            {/* Right Side: Signed-in Name, Notification Bell, Demo Drawer Trigger, Logout */}
-            <div className="flex items-center gap-2 sm:gap-3">
+            {/* Right Side: Language Toggle, Signed-in Name, Notification Bell, Demo Drawer Trigger, Logout */}
+            <div className="flex items-center gap-2 sm:gap-2.5">
+              {/* Language Toggle (EN | தமிழ்) */}
+              <button
+                type="button"
+                onClick={toggleLanguage}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 min-h-[44px] cursor-pointer transition-all"
+                title="Switch language between English and Tamil"
+                aria-label="Switch language between English and Tamil"
+              >
+                <Languages className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="hidden sm:inline font-semibold">
+                  {language === 'en' ? 'தமிழ்' : 'English'}
+                </span>
+                <span className="sm:hidden font-mono uppercase text-[10px]">
+                  {language === 'en' ? 'TA' : 'EN'}
+                </span>
+              </button>
               {session ? (
                 <>
                   {/* Signed-in identity */}

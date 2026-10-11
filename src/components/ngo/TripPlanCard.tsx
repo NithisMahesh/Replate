@@ -18,14 +18,20 @@ export const TripPlanCard: React.FC<TripPlanCardProps> = ({
 }) => {
   const toast = useToast();
   const [showWhy, setShowWhy] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
   const isDispatchable = trip.dispatchStatus === 'DISPATCHABLE';
   const minNeeded = trip.minViablePortions || 20;
   const percentMin = Math.min(100, Math.round((trip.totalPortions / minNeeded) * 100));
 
-  const handleAccept = () => {
-    if (!isDispatchable) return;
-    onAcceptTrip(trip);
-    toast.success(`Trip #${trip.tripNumber} accepted! Dispatched to driver.`);
+  const handleAccept = async () => {
+    if (!isDispatchable || isAccepting) return;
+    setIsAccepting(true);
+    try {
+      await onAcceptTrip(trip);
+      toast.success(`Trip #${trip.tripNumber} accepted! Dispatched to driver.`);
+    } finally {
+      setIsAccepting(false);
+    }
   };
 
   return (
@@ -71,20 +77,28 @@ export const TripPlanCard: React.FC<TripPlanCardProps> = ({
             </div>
           )}
           {!isAlreadyAccepted ? (
-            <Button
-              variant="primary"
-              size="md"
-              disabled={!isDispatchable}
-              icon={<CheckCircle2 className="h-4 w-4" />}
-              onClick={handleAccept}
-              title={
-                !isDispatchable
-                  ? `Trip requires at least ${minNeeded} meals to dispatch (Rule 1).`
-                  : undefined
-              }
-            >
-              {isDispatchable ? 'Accept & dispatch' : 'Accept trip (On hold)'}
-            </Button>
+            <div className="flex items-center gap-2">
+              {!isDispatchable && (
+                <span className="text-xs text-amber-800 font-semibold">
+                  Needs {minNeeded} meals, has {trip.totalPortions}
+                </span>
+              )}
+              <Button
+                variant="primary"
+                size="md"
+                loading={isAccepting}
+                disabled={!isDispatchable || isAccepting}
+                icon={<CheckCircle2 className="h-4 w-4" />}
+                onClick={handleAccept}
+                title={
+                  !isDispatchable
+                    ? `Trip requires at least ${minNeeded} meals to dispatch (Rule 1).`
+                    : undefined
+                }
+              >
+                {isDispatchable ? 'Accept & dispatch' : 'Accept trip (On hold)'}
+              </Button>
+            </div>
           ) : (
             <StatusChip variant="done">
               Trip accepted

@@ -117,7 +117,12 @@ export const ImpactFunnelCard: React.FC<ImpactFunnelProps> = ({
       </div>
 
       <div className="pt-2">
-        <div className="h-56 w-full">
+        <div
+          className="h-56 w-full"
+          role="region"
+          aria-label="Verified food impact pipeline bar chart tracking portions across custody stages"
+          tabIndex={0}
+        >
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 15, right: 15, left: -15, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />

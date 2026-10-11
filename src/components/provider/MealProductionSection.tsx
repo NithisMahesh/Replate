@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChefHat, CheckCircle2, Check, Edit2, Clock, Lock } from 'lucide-react';
+import { ChefHat, CheckCircle2, Check, Edit2, Clock, Lock, Sunrise, Sun, Moon, AlertCircle } from 'lucide-react';
 import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
 import { formatTime12 } from '../../utils/deadlineUtils';
@@ -45,11 +45,20 @@ interface MealProductionSectionProps {
   slotStatuses?: Record<MealSlot, MealSlotStatus>;
 }
 
-const MEAL_SLOTS: { id: MealSlot; defaultWindow: string }[] = [
-  { id: 'morning', defaultWindow: '06:00 – 10:00' },
-  { id: 'afternoon', defaultWindow: '12:00 – 15:00' },
-  { id: 'night', defaultWindow: '19:00 – 23:00' },
+const MEAL_SLOTS: { id: MealSlot; defaultWindow: string; Icon: React.FC<{ className?: string }> }[] = [
+  { id: 'morning',   defaultWindow: '06:00 – 10:00', Icon: Sunrise },
+  { id: 'afternoon', defaultWindow: '12:00 – 15:00', Icon: Sun },
+  { id: 'night',     defaultWindow: '19:00 – 23:00', Icon: Moon },
 ];
+
+// Status chip appearance — icon + colour so colour is never the only signal
+const SLOT_STATUS_META: Record<MealSlotStatus, { label: string; dot: string; text: string; bg: string; border: string; icon: string }> = {
+  'Not started': { label: 'Not started', icon: '○',  bg: 'bg-slate-100',     text: 'text-slate-500',   border: 'border-slate-200',   dot: '' },
+  'Saved':       { label: 'Saved',       icon: '✓',  bg: 'bg-sky-100',       text: 'text-sky-800',     border: 'border-sky-300',     dot: '' },
+  'Confirmed':   { label: 'Confirmed',   icon: '✓',  bg: 'bg-emerald-100',   text: 'text-emerald-800', border: 'border-emerald-300', dot: '' },
+  'Scheduled':   { label: 'Scheduled',   icon: '↻',  bg: 'bg-blue-100',      text: 'text-blue-800',    border: 'border-blue-300',    dot: '' },
+  'Locked':      { label: 'Locked',      icon: '🔒', bg: 'bg-slate-200',     text: 'text-slate-700',   border: 'border-slate-300',   dot: '' },
+};
 
 function getDefaultDraftForSlot(
   slot: MealSlot,
@@ -86,7 +95,6 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
   onSyncBilling,
   slotStatuses,
 }) => {
-  // Hold form draft state per meal so switching slots preserves drafts without leaking
   const [drafts, setDrafts] = useState<Record<MealSlot, MealSlotDraft>>(() => ({
     morning: getDefaultDraftForSlot('morning', mealSlotWindows, {
       quantity: activeMealSlot === 'morning' && isSaved ? lastSavedQuantity : undefined,
@@ -105,18 +113,14 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
     }),
   }));
 
-  const [errors, setErrors] = useState<{
-    quantity?: string;
-    prepTime?: string;
-    closingTime?: string;
-  }>({});
+  const [errors, setErrors] = useState<{ quantity?: string; prepTime?: string; closingTime?: string }>({});
+  const [isSaving, setIsSaving] = useState(false);
 
   const currentWindow = mealSlotWindows[activeMealSlot] || DEFAULT_MEAL_SLOT_WINDOWS[activeMealSlot];
   const currentMealSlot = getCurrentMealSlot(mealSlotWindows);
   const toast = useToast();
   const mealLabel = MEAL_SLOT_LABELS[activeMealSlot];
 
-  // If saved values for this slot change (e.g. from parent state update), sync the draft for this slot
   useEffect(() => {
     if (isSaved) {
       setDrafts((prev) => ({
@@ -136,84 +140,82 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
   const prepTime = activeDraft.prepTime;
   const closingTime = activeDraft.closingTime;
 
+  const validateField = (field: keyof MealSlotDraft, value: string, currentDraft: MealSlotDraft): string | undefined => {
+    if (field === 'quantityStr') {
+      if (!value.trim()) return `${mealLabel} portions is required (enter at least 1)`;
+      const q = Number(value);
+      if (isNaN(q) || q <= 0) return 'Portions must be greater than 0';
+      if (q > 500) return 'Exceeds single batch limit of 500 portions';
+      return undefined;
+    }
+    if (field === 'prepTime') {
+      if (!value.trim()) return 'Preparation time is required';
+      return undefined;
+    }
+    if (field === 'closingTime') {
+      if (!value.trim()) return 'Closing time is required';
+      if (currentDraft.prepTime.trim()) {
+        const [pH, pM] = currentDraft.prepTime.split(':').map(Number);
+        const [cH, cM] = value.split(':').map(Number);
+        if (cH * 60 + (cM || 0) <= pH * 60 + (pM || 0)) {
+          return 'Closing time must be after preparation time';
+        }
+      }
+      return undefined;
+    }
+    return undefined;
+  };
+
   const updateActiveDraft = (field: keyof MealSlotDraft, value: string) => {
+    const updatedDraft = {
+      ...(drafts[activeMealSlot] || getDefaultDraftForSlot(activeMealSlot, mealSlotWindows)),
+      [field]: value,
+    };
     setDrafts((prev) => ({
       ...prev,
-      [activeMealSlot]: {
-        ...(prev[activeMealSlot] || getDefaultDraftForSlot(activeMealSlot, mealSlotWindows)),
-        [field]: value,
-      },
+      [activeMealSlot]: updatedDraft,
     }));
+    const fieldError = validateField(field, value, updatedDraft);
+    setErrors((prev) => ({ ...prev, [field]: fieldError }));
   };
 
   const validate = (): boolean => {
     const newErrors: { quantity?: string; prepTime?: string; closingTime?: string } = {};
 
-    // 1. Quantity validation
-    if (!quantityStr.trim()) {
-      newErrors.quantity = `${mealLabel} portions prepared is required`;
-    } else {
-      const q = Number(quantityStr);
-      if (isNaN(q) || q <= 0) {
-        newErrors.quantity = 'Quantity must be greater than 0';
-      }
-    }
+    const qtyErr = validateField('quantityStr', quantityStr, activeDraft);
+    if (qtyErr) newErrors.quantity = qtyErr;
 
-    // 2. Preparation time validation
-    if (!prepTime.trim()) {
-      newErrors.prepTime = 'Preparation time is required';
-    }
+    const prepErr = validateField('prepTime', prepTime, activeDraft);
+    if (prepErr) newErrors.prepTime = prepErr;
 
-    // 3. Closing time validation
-    if (!closingTime.trim()) {
-      newErrors.closingTime = 'Closing time is required';
-    } else if (prepTime.trim()) {
-      const [pH, pM] = prepTime.split(':').map(Number);
-      const [cH, cM] = closingTime.split(':').map(Number);
-      const prepMinutes = pH * 60 + (pM || 0);
-      const closeMinutes = cH * 60 + (cM || 0);
-
-      if (closeMinutes <= prepMinutes) {
-        newErrors.closingTime = 'Closing time must be after preparation time';
-      }
-    }
+    const closeErr = validateField('closingTime', closingTime, activeDraft);
+    if (closeErr) newErrors.closingTime = closeErr;
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate() || isSaving) return;
 
-    const qty = Number(quantityStr);
-    onSave({
-      preparedQty: qty,
-      preparationTime: prepTime,
-      closingTime,
-    });
-    toast.success(`${mealLabel} production logged: ${qty} portions`);
-  };
-
-  const getStatusBadgeClasses = (status: MealSlotStatus) => {
-    switch (status) {
-      case 'Locked':
-        return 'bg-slate-200 text-slate-700 border-slate-300';
-      case 'Scheduled':
-        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
-      case 'Confirmed':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-      case 'Saved':
-        return 'bg-sky-100 text-sky-800 border-sky-300';
-      case 'Not started':
-      default:
-        return 'bg-slate-100 text-slate-500 border-slate-200';
+    setIsSaving(true);
+    try {
+      const qty = Number(quantityStr);
+      await onSave({
+        preparedQty: qty,
+        preparationTime: prepTime,
+        closingTime,
+      });
+      toast.success(`${mealLabel} production logged: ${qty} portions`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4 transition-all duration-150">
-      {/* Compact Billing status card near top of Meal Production */}
+      {/* Compact Billing status card */}
       {onConnectBilling && onSyncBilling && (
         <BillingStatusCard
           billingConnection={billingConnection}
@@ -222,7 +224,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
         />
       )}
 
-      {/* 1. Meal Slot Segmented Control at top */}
+      {/* ── Meal Slot Tabs (large: icon + name + status chip) ── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -230,50 +232,70 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
           </label>
           <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
             <Clock className="w-3 h-3 text-emerald-600" />
-            Current time: <strong className="text-slate-800">{getMealSlotLabel(currentMealSlot)}</strong>
+            Current: <strong className="text-slate-800">{getMealSlotLabel(currentMealSlot)}</strong>
           </span>
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/60" role="tablist">
+        {/* Three large tabs */}
+        <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200/60" role="tablist">
           {MEAL_SLOTS.map((slot) => {
             const isSelected = activeMealSlot === slot.id;
             const isCurrentClock = currentMealSlot === slot.id;
             const slotWindow = mealSlotWindows[slot.id] || DEFAULT_MEAL_SLOT_WINDOWS[slot.id];
             const slotLabel = MEAL_SLOT_LABELS[slot.id];
-            const status: MealSlotStatus = slotStatuses?.[slot.id] || (isSelected && isSaved ? 'Saved' : 'Not started');
+            const slotStatus: MealSlotStatus =
+              slotStatuses?.[slot.id] || (isSelected && isSaved ? 'Saved' : 'Not started');
+            const meta = SLOT_STATUS_META[slotStatus];
+            const SlotIcon = slot.Icon;
 
             return (
               <button
                 key={slot.id}
                 type="button"
                 id={`meal-slot-btn-${slot.id}`}
+                role="tab"
+                aria-selected={isSelected}
                 onClick={() => onSelectMealSlot(slot.id)}
-                className={`flex flex-col items-center justify-center py-2 px-2 rounded-lg text-xs font-semibold transition-all duration-150 relative cursor-pointer ${
+                className={[
+                  'flex flex-col items-center justify-center py-3 px-2 rounded-xl',
+                  'min-h-[80px] text-xs font-semibold transition-all duration-150 relative cursor-pointer',
                   isSelected
-                    ? 'bg-white text-emerald-900 shadow-xs border border-slate-200/80 font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-                }`}
+                    ? 'bg-white text-emerald-900 shadow-sm border border-slate-200/80 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50',
+                ].join(' ')}
               >
-                <div className="flex items-center gap-1.5">
-                  <span>{slotLabel}</span>
+                {/* Icon */}
+                <SlotIcon className={`w-5 h-5 mb-1 ${isSelected ? 'text-emerald-600' : 'text-slate-400'}`} />
+
+                {/* Name + "Now" badge */}
+                <div className="flex items-center gap-1">
+                  <span className="text-sm font-semibold">{slotLabel}</span>
                   {isCurrentClock && (
                     <span
                       title="Current active meal by clock"
-                      className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300"
+                      className="inline-flex items-center px-1.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300"
                     >
                       Now
                     </span>
                   )}
                 </div>
+
+                {/* Time window */}
                 <span className={`text-[10px] font-normal mt-0.5 ${isSelected ? 'text-slate-500' : 'text-slate-400'}`}>
                   {slotWindow.start}–{slotWindow.end}
                 </span>
-                {/* Status chip per meal slot */}
+
+                {/* Status chip — icon + label */}
                 <span
                   id={`slot-status-chip-${slot.id}`}
-                  className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium border mt-1 ${getStatusBadgeClasses(status)}`}
+                  className={[
+                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full',
+                    'text-[9px] font-semibold border mt-1.5',
+                    meta.bg, meta.text, meta.border,
+                  ].join(' ')}
                 >
-                  {status}
+                  <span aria-hidden="true">{meta.icon}</span>
+                  <span>{meta.label}</span>
                 </span>
               </button>
             );
@@ -285,9 +307,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
       <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/60 text-xs">
         <div className="flex items-center gap-2">
           <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-          <span className="text-slate-600">
-            {mealLabel} window:
-          </span>
+          <span className="text-slate-600">{mealLabel} window:</span>
           <span className="font-semibold text-slate-800 font-mono">
             {currentWindow.start} – {currentWindow.end}
           </span>
@@ -310,7 +330,9 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                   id="meal-production-summary"
                   className="text-sm font-semibold text-slate-800 mt-0.5 tracking-tight"
                 >
-                  {mealLabel}: {quantityStr || lastSavedQuantity} portions prepared at {formatTime12(prepTime || lastSavedPrepTime)}, closing {formatTime12(closingTime || lastSavedClosingTime)}.
+                  {mealLabel}: {quantityStr || lastSavedQuantity} portions prepared at{' '}
+                  {formatTime12(prepTime || lastSavedPrepTime)}, closing{' '}
+                  {formatTime12(closingTime || lastSavedClosingTime)}.
                 </p>
               </div>
             </div>
@@ -320,7 +342,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold shrink-0"
               >
                 <Lock className="w-3.5 h-3.5 text-slate-500" />
-                <span>Locked: pickup scheduled</span>
+                <span>Locked — pickup scheduled</span>
               </span>
             ) : (
               <button
@@ -328,7 +350,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 id="edit-meal-production-btn"
                 onClick={onEdit}
                 disabled={disabled}
-                className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-200 transition-colors duration-150 cursor-pointer self-start sm:self-auto flex items-center gap-1.5 shrink-0"
+                className="min-h-[44px] px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-200 transition-colors duration-150 cursor-pointer self-start sm:self-auto flex items-center gap-1.5 shrink-0"
               >
                 <Edit2 className="h-3.5 w-3.5 text-slate-500" />
                 <span>Edit</span>
@@ -344,9 +366,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 <ChefHat className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  {mealLabel} Kitchen Output
-                </h3>
+                <h3 className="text-sm font-semibold text-slate-900">{mealLabel} Kitchen Output</h3>
                 <p className="text-[11px] text-slate-500">
                   Enter portions prepared and service hours for {mealLabel.toLowerCase()}
                 </p>
@@ -368,10 +388,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 placeholder="e.g. 80"
                 value={quantityStr}
                 disabled={disabled}
-                onChange={(e) => {
-                  updateActiveDraft('quantityStr', e.target.value);
-                  if (errors.quantity) setErrors((prev) => ({ ...prev, quantity: undefined }));
-                }}
+                onChange={(e) => updateActiveDraft('quantityStr', e.target.value)}
                 className={`w-full px-3.5 py-2.5 text-sm rounded-xl border bg-white text-slate-900 font-medium transition-colors focus:outline-hidden focus:ring-2 ${
                   errors.quantity
                     ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/20'
@@ -379,8 +396,9 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 }`}
               />
               {errors.quantity && (
-                <p className="text-xs text-rose-600 font-medium mt-1 animate-in fade-in" id="error-meal-production-quantity">
-                  {errors.quantity}
+                <p className="text-xs text-rose-600 font-medium mt-1 flex items-center gap-1.5 animate-in fade-in" id="error-meal-production-quantity">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                  <span>{errors.quantity}</span>
                 </p>
               )}
             </div>
@@ -395,10 +413,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 type="time"
                 value={prepTime}
                 disabled={disabled}
-                onChange={(e) => {
-                  updateActiveDraft('prepTime', e.target.value);
-                  if (errors.prepTime) setErrors((prev) => ({ ...prev, prepTime: undefined }));
-                }}
+                onChange={(e) => updateActiveDraft('prepTime', e.target.value)}
                 className={`w-full px-3.5 py-2.5 text-sm rounded-xl border bg-white text-slate-900 font-medium transition-colors focus:outline-hidden focus:ring-2 ${
                   errors.prepTime
                     ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/20'
@@ -406,8 +421,9 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 }`}
               />
               {errors.prepTime && (
-                <p className="text-xs text-rose-600 font-medium mt-1 animate-in fade-in" id="error-meal-production-preptime">
-                  {errors.prepTime}
+                <p className="text-xs text-rose-600 font-medium mt-1 flex items-center gap-1.5 animate-in fade-in" id="error-meal-production-preptime">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                  <span>{errors.prepTime}</span>
                 </p>
               )}
             </div>
@@ -425,10 +441,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 type="time"
                 value={closingTime}
                 disabled={disabled}
-                onChange={(e) => {
-                  updateActiveDraft('closingTime', e.target.value);
-                  if (errors.closingTime) setErrors((prev) => ({ ...prev, closingTime: undefined }));
-                }}
+                onChange={(e) => updateActiveDraft('closingTime', e.target.value)}
                 className={`w-full px-3.5 py-2.5 text-sm rounded-xl border bg-white text-slate-900 font-medium transition-colors focus:outline-hidden focus:ring-2 ${
                   errors.closingTime
                     ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/20'
@@ -436,8 +449,9 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 }`}
               />
               {errors.closingTime && (
-                <p className="text-xs text-rose-600 font-medium mt-1 animate-in fade-in" id="error-meal-production-closingtime">
-                  {errors.closingTime}
+                <p className="text-xs text-rose-600 font-medium mt-1 flex items-center gap-1.5 animate-in fade-in" id="error-meal-production-closingtime">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                  <span>{errors.closingTime}</span>
                 </p>
               )}
             </div>
@@ -447,16 +461,25 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
             <p className="text-xs text-slate-500">
               Values update {mealLabel.toLowerCase()}&apos;s surplus estimate and collection deadline.
             </p>
-            <Button
-              type="submit"
-              id="save-meal-production-btn"
-              variant="primary"
-              size="md"
-              disabled={disabled}
-              icon={<Check className="h-4 w-4" />}
-            >
-              Save {mealLabel}
-            </Button>
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              {disabled && (
+                <span className="text-xs text-slate-500 font-medium">Locked during active collection</span>
+              )}
+              {!disabled && (!quantityStr.trim() || Boolean(errors.quantity || errors.prepTime || errors.closingTime)) && (
+                <span className="text-xs text-rose-600 font-medium">Enter valid portions & times above</span>
+              )}
+              <Button
+                type="submit"
+                id="save-meal-production-btn"
+                variant="primary"
+                size="md"
+                loading={isSaving}
+                disabled={disabled || isSaving || !quantityStr.trim() || Boolean(errors.quantity || errors.prepTime || errors.closingTime)}
+                icon={<Check className="h-4 w-4" />}
+              >
+                Save {mealLabel}
+              </Button>
+            </div>
           </div>
         </form>
       )}

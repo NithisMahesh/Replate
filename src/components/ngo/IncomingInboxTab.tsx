@@ -24,6 +24,9 @@ import {
   Check,
   PhoneCall,
   X,
+  MoreHorizontal,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 export const IncomingInboxTab: React.FC = () => {
@@ -39,6 +42,11 @@ export const IncomingInboxTab: React.FC = () => {
   const [rejectionReason, setRejectionReason] = useState('Outside current collection service radius');
   const [customRejectionText, setCustomRejectionText] = useState('');
   const [mapModalDonation, setMapModalDonation] = useState<FoodDonation | null>(null);
+
+  // More menu & Collapsed details per card
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   // Map ref for modal
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -156,15 +164,20 @@ export const IncomingInboxTab: React.FC = () => {
     }
   };
 
-  const executeAccept = (item: FoodDonation) => {
-    updateDonation(item.id, {
-      status: 'Confirmed',
-      verification: 'verified',
-    });
-    setUnverifiedModalDonation(null);
-    toast.success(
-      `Accepted donation from ${item.providerName}! Moved to Confirmed planner pool.`
-    );
+  const executeAccept = async (item: FoodDonation) => {
+    setProcessingId(item.id);
+    try {
+      updateDonation(item.id, {
+        status: 'Confirmed',
+        verification: 'verified',
+      });
+      setUnverifiedModalDonation(null);
+      toast.success(
+        `Accepted donation from ${item.providerName}! Moved to Confirmed planner pool.`
+      );
+    } finally {
+      setTimeout(() => setProcessingId(null), 300);
+    }
   };
 
   const handleOpenReject = (item: FoodDonation) => {
@@ -175,17 +188,30 @@ export const IncomingInboxTab: React.FC = () => {
 
   const executeReject = () => {
     if (!rejectModalDonation) return;
+    const donationToReject = rejectModalDonation;
+    const prevStatus = donationToReject.status;
     const finalReason =
       rejectionReason === 'Custom'
         ? customRejectionText.trim() || 'Unable to collect surplus'
         : rejectionReason;
 
-    updateDonation(rejectModalDonation.id, {
+    updateDonation(donationToReject.id, {
       status: 'Rejected',
       rejectionReason: finalReason,
     });
-    toast.info(`Donation from ${rejectModalDonation.providerName} marked as Rejected.`);
     setRejectModalDonation(null);
+
+    // Show Undo toast for 5 seconds using existing state action
+    toast.undo(
+      `Rejected donation from ${donationToReject.providerName}`,
+      () => {
+        updateDonation(donationToReject.id, {
+          status: prevStatus,
+          rejectionReason: undefined,
+        });
+        toast.success(`Restored donation from ${donationToReject.providerName}!`);
+      }
+    );
   };
 
   // Leaflet Modal Map Initialization
@@ -308,7 +334,7 @@ export const IncomingInboxTab: React.FC = () => {
             <EmptyState
               icon={<Inbox className="h-8 w-8 text-slate-400" />}
               title="No Pending QR Submissions"
-              description="New surplus donations submitted via the public QR link will appear here instantly with countdown timers."
+              description="All incoming donations have been reviewed."
             />
           ) : (
             <div className="space-y-4">
@@ -343,7 +369,7 @@ export const IncomingInboxTab: React.FC = () => {
                       }`}
                     />
 
-                    <div className="space-y-4 pt-1">
+                    <div className="space-y-3 pt-1">
                       {/* Top Bar: Shop Name, Badges, Countdown */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                         <div className="flex flex-wrap items-center gap-2">
@@ -351,11 +377,11 @@ export const IncomingInboxTab: React.FC = () => {
                             {item.providerName}
                           </h3>
 
-                          {/* Trusted vs Unverified Badge */}
+                          {/* Verified vs Unverified Badge */}
                           {trusted ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                              Trusted
+                              Verified
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
@@ -384,130 +410,169 @@ export const IncomingInboxTab: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Content Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/60 text-xs">
-                        {/* Food & Quantity */}
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Food & Portions
-                          </span>
-                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                            <Utensils className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                            <span className="truncate">{item.foodItem}</span>
-                          </div>
-                          <div className="text-emerald-800 font-extrabold font-mono text-sm">
-                            {portions} portions
-                          </div>
-                        </div>
+                      {/* Icon Chips for Food Type, Portions, Deadline, Location */}
+                      <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+                        {/* Food item chip */}
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold bg-slate-100 border border-slate-200 text-slate-900">
+                          <Utensils className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{item.foodItem}</span>
+                        </span>
 
-                        {/* Timing */}
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Prep & Deadline
-                          </span>
-                          <div className="text-slate-700 font-medium">
-                            Prepared: <strong>{item.preparedTime}</strong>
-                          </div>
-                          <div className="text-slate-900 font-semibold">
-                            Deadline: <strong>{item.collectionDeadline}</strong>
-                          </div>
-                        </div>
+                        {/* Portions chip */}
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-800 font-mono">
+                          {portions} portions
+                        </span>
 
-                        {/* Phone & Contact */}
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Phone / Contact
-                          </span>
-                          <div className="font-mono font-bold text-slate-900">
-                            {item.contactPhone || 'No phone'}
-                          </div>
-                          {item.contactPhone && (
-                            <a
-                              href={`tel:${item.contactPhone}`}
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
-                            >
-                              <Phone className="w-3 h-3" />
-                              <span>Call {item.contactPhone}</span>
-                            </a>
-                          )}
-                        </div>
+                        {/* Deadline chip */}
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium bg-slate-50 border border-slate-200 text-slate-700">
+                          <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>Deadline: {item.collectionDeadline}</span>
+                        </span>
 
-                        {/* Location */}
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Location
-                          </span>
-                          <div className="flex items-start gap-1 text-slate-700 font-medium">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                            <span className="truncate">
-                              {item.locationLandmark || (item.lat && item.lng ? `${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}` : 'Location pinned')}
+                        {/* Location chip */}
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium bg-slate-50 border border-slate-200 text-slate-700 truncate max-w-[220px]">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{item.locationLandmark || 'Madurai Depot Area'}</span>
+                        </span>
+                      </div>
+
+                      {/* Collapsed "Details" Expander */}
+                      {expandedDetailsId === item.id && (
+                        <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-3 text-xs mt-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600">
+                            <div>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Preparation</span>
+                              <span>Prepared at: <strong>{item.preparedTime}</strong></span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Phone Contact</span>
+                              <span>{item.contactPhone || 'No phone provided'}</span>
+                            </div>
+                            <div className="sm:col-span-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Location Coordinates</span>
+                              <span className="text-slate-500 text-[11px]">
+                                {isTypedLocation
+                                  ? 'Landmark typed (not GPS)'
+                                  : `GPS fixed (±${item.locationAccuracy || 15}m)`}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Reusable Donation Timeline */}
+                          <div className="pt-2 border-t border-slate-200/60">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                              Donation Timeline
                             </span>
+                            <DonationTimeline donation={item} events={eventLog} compact={true} />
                           </div>
-                          {/* Note if typed instead of detected */}
-                          {isTypedLocation ? (
-                            <span className="text-[10px] text-amber-700 font-semibold block">
-                              Note: Typed landmark (not GPS)
-                            </span>
+                        </div>
+                      )}
+
+                      {/* Action Bar: 1 Primary (Accept), 2nd More menu (Reject, Call, Details) */}
+                      <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                        {/* Toggle Details quick text */}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedDetailsId(expandedDetailsId === item.id ? null : item.id)}
+                          className="text-xs font-semibold text-slate-500 hover:text-slate-900 flex items-center gap-1 cursor-pointer min-h-[44px] px-2"
+                        >
+                          <span>{expandedDetailsId === item.id ? 'Hide details' : 'Show details'}</span>
+                          {expandedDetailsId === item.id ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
                           ) : (
-                            <span className="text-[10px] text-slate-500 font-medium block">
-                              GPS detected (±{item.locationAccuracy || 15}m)
-                            </span>
+                            <ChevronDown className="w-3.5 h-3.5" />
                           )}
-                        </div>
-                      </div>
+                        </button>
 
-                      {/* Reusable Donation Timeline */}
-                      <div className="pt-0.5">
-                        <DonationTimeline donation={item} events={eventLog} compact={true} />
-                      </div>
-
-                      {/* Action Bar */}
-                      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
-                        {/* Left actions: Map & Call mark */}
                         <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setMapModalDonation(item)}
-                            icon={<MapPin className="w-3.5 h-3.5 text-slate-500" />}
-                            className="text-xs font-semibold cursor-pointer"
-                          >
-                            View on map
-                          </Button>
-
-                          {!item.isCalled && item.contactPhone && (
+                          {/* More Menu Dropdown for Reject, Call, Details, Map */}
+                          <div className="relative">
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleMarkCalled(item)}
-                              icon={<PhoneCall className="w-3.5 h-3.5 text-slate-500" />}
-                              className="text-xs font-semibold cursor-pointer"
+                              onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}
+                              icon={<MoreHorizontal className="w-4 h-4 text-slate-600" />}
+                              className="min-h-[44px] px-3 font-semibold text-xs text-slate-700 hover:bg-slate-100 cursor-pointer"
+                              aria-label="More actions"
                             >
-                              Mark as called
+                              More
                             </Button>
-                          )}
-                        </div>
 
-                        {/* Right actions: Reject & Accept */}
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenReject(item)}
-                            icon={<XCircle className="w-3.5 h-3.5 text-rose-600" />}
-                            className="text-xs font-semibold text-rose-700 hover:text-rose-800 hover:bg-rose-50 cursor-pointer"
-                          >
-                            Reject
-                          </Button>
+                            {openMenuId === item.id && (
+                              <div
+                                className="absolute right-0 bottom-full mb-1 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-20 space-y-0.5 text-xs animate-in fade-in zoom-in-95 duration-100"
+                                role="menu"
+                              >
+                                {item.contactPhone && (
+                                  <a
+                                    href={`tel:${item.contactPhone}`}
+                                    onClick={() => {
+                                      handleMarkCalled(item);
+                                      setOpenMenuId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50 font-semibold cursor-pointer"
+                                    role="menuitem"
+                                  >
+                                    <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Call {item.contactPhone}</span>
+                                  </a>
+                                )}
 
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMapModalDonation(item);
+                                    setOpenMenuId(null);
+                                  }}
+                                  className="flex items-center gap-2 w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 font-semibold cursor-pointer"
+                                  role="menuitem"
+                                >
+                                  <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>View on map</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedDetailsId(expandedDetailsId === item.id ? null : item.id);
+                                    setOpenMenuId(null);
+                                  }}
+                                  className="flex items-center gap-2 w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 font-semibold cursor-pointer"
+                                  role="menuitem"
+                                >
+                                  <Info className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>{expandedDetailsId === item.id ? 'Collapse details' : 'Audit details'}</span>
+                                </button>
+
+                                <div className="border-t border-slate-100 my-1" />
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleOpenReject(item);
+                                    setOpenMenuId(null);
+                                  }}
+                                  className="flex items-center gap-2 w-full text-left px-3 py-2 text-rose-700 hover:bg-rose-50 font-semibold cursor-pointer"
+                                  role="menuitem"
+                                >
+                                  <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Reject donation</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* ONE Primary Action: Accept */}
                           <Button
                             variant="primary"
-                            size="sm"
+                            size="md"
                             onClick={() => handleAcceptClick(item)}
+                            disabled={processingId === item.id}
+                            isLoading={processingId === item.id}
                             icon={<CheckCircle2 className="w-4 h-4" />}
-                            className="text-xs font-bold min-h-[38px] px-4 cursor-pointer"
+                            className="text-xs font-bold min-h-[44px] px-5 shadow-xs cursor-pointer"
                           >
-                            Accept
+                            {processingId === item.id ? 'Accepting...' : 'Accept'}
                           </Button>
                         </div>
                       </div>
@@ -527,7 +592,7 @@ export const IncomingInboxTab: React.FC = () => {
             <EmptyState
               icon={<History className="h-8 w-8 text-slate-400" />}
               title="No Historical QR Donations"
-              description="Accepted, rejected, and expired QR submissions will appear here for audit tracking."
+              description="Processed and expired surplus donations appear here."
             />
           ) : (
             <div className="space-y-3">

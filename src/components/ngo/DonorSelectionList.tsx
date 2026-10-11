@@ -137,30 +137,38 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
           </div>
 
           {/* Progress Bar: Green under 60, TURNS RED OVER 60 */}
-          <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden">
+          <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
-                isOverCapacity
-                  ? 'bg-rose-600'
-                  : totalPortions >= 45
-                  ? 'bg-amber-500'
-                  : 'bg-emerald-600'
+                isOverCapacity ? 'bg-rose-600' : 'bg-emerald-600'
               }`}
               style={{ width: `${Math.min(100, (totalPortions / vanCapacity) * 100)}%` }}
             />
           </div>
-          <p className="text-[11px] text-slate-500">
-            {isOverCapacity
-              ? 'Selected volume exceeds 60 portions; solver will split into multiple vehicle trips.'
-              : 'Electric van capacity is 60 portions max per roundtrip.'}
-          </p>
+          <details className="text-[11px] text-slate-500 pt-0.5">
+            <summary className="font-semibold text-slate-600 cursor-pointer hover:underline">
+              {isOverCapacity ? 'Over capacity: Solver will split trips' : 'Van capacity details'}
+            </summary>
+            <p className="mt-1 leading-relaxed">
+              {isOverCapacity
+                ? `Selected volume (${totalPortions}) exceeds the ${vanCapacity}-portion vehicle limit. Route solver will automatically optimize into 2+ circuits.`
+                : `Electric vehicle holds up to ${vanCapacity} portions per trip to meet food safety deadlines.`}
+            </p>
+          </details>
         </div>
 
         {/* Compact Donation List with Checkbox per Donor */}
-        {donations.length === 0 ? (
+        {isGenerating ? (
+          <div className="space-y-2.5 p-2 animate-pulse" aria-label="Calculating routes">
+            <div className="h-12 bg-slate-100 rounded-xl" />
+            <div className="h-12 bg-slate-100 rounded-xl" />
+            <div className="h-12 bg-slate-100 rounded-xl" />
+          </div>
+        ) : donations.length === 0 ? (
           <EmptyState
+            icon={<Clock className="h-8 w-8 text-slate-400" />}
             title="No confirmed donors waiting"
-            description="No surplus donations are waiting in the pool. Tap below to seed demo donors."
+            description="No surplus donations waiting in this meal pool."
             actionLabel="Load Demo Donors"
             onAction={handleLoadDemo}
             actionIcon={<Sparkles className="h-4 w-4 text-amber-500" />}

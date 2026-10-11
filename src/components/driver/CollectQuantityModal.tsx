@@ -16,8 +16,19 @@ export const CollectQuantityModal: React.FC<CollectQuantityModalProps> = ({
   onClose,
 }) => {
   const [actualQty, setActualQty] = useState<number>(stop.confirmedPortions);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const shortfall = Math.max(0, stop.confirmedPortions - actualQty);
   const isOverConfirmed = actualQty > stop.confirmedPortions;
+
+  const handleConfirmCollection = async () => {
+    if (isOverConfirmed || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onConfirm(actualQty);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <BottomSheet
@@ -26,19 +37,29 @@ export const CollectQuantityModal: React.FC<CollectQuantityModalProps> = ({
       title="Confirm Collection"
       subtitle={`Stop #${stop.stopOrder}: ${stop.provider.name}`}
       footer={
-        <div className="flex items-center justify-end gap-2 w-full">
-          <Button variant="secondary" size="md" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="md"
-            icon={<CheckCircle2 className="h-4 w-4" />}
-            disabled={isOverConfirmed}
-            onClick={() => onConfirm(actualQty)}
-          >
-            Record Collection
-          </Button>
+        <div className="flex items-center justify-between w-full">
+          <div>
+            {isOverConfirmed && (
+              <span className="text-xs text-rose-600 font-medium">
+                Max {stop.confirmedPortions} portions allowed
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="md" onClick={onClose} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              loading={isSubmitting}
+              disabled={isOverConfirmed || isSubmitting}
+              onClick={handleConfirmCollection}
+            >
+              Record Collection
+            </Button>
+          </div>
         </div>
       }
     >

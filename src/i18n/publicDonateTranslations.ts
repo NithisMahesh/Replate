@@ -200,3 +200,94 @@ export const PUBLIC_DONATE_TRANSLATIONS: Record<PublicLanguage, PublicDonateDict
     ngoLabel: 'பெறும் தன்னார்வ அமைப்பு',
   },
 };
+
+export interface AppUiStrings {
+  appName: string;
+  cluster: string;
+  live: string;
+  lastUpdated: string;
+  langEn: string;
+  langTa: string;
+  save: string;
+  saving: string;
+  cancel: string;
+  confirm: string;
+  confirming: string;
+  accept: string;
+  accepting: string;
+  reject: string;
+  rejecting: string;
+  collect: string;
+  collecting: string;
+  undo: string;
+  resetDefaults: string;
+  plan: string;
+  incoming: string;
+  pickups: string;
+  impact: string;
+  settings: string;
+  production: string;
+  history: string;
+  billing: string;
+}
+
+export const APP_UI_STRINGS: Record<PublicLanguage, AppUiStrings> = {
+  en: {
+    appName: 'Replate',
+    cluster: 'Madurai Cluster',
+    live: 'Live',
+    lastUpdated: 'Last updated',
+    langEn: 'English',
+    langTa: 'தமிழ்',
+    save: 'Save',
+    saving: 'Saving...',
+    cancel: 'Cancel',
+    confirm: 'Confirm',
+    confirming: 'Confirming...',
+    accept: 'Accept',
+    accepting: 'Accepting...',
+    reject: 'Reject',
+    rejecting: 'Rejecting...',
+    collect: 'Collect',
+    collecting: 'Collecting...',
+    undo: 'Undo',
+    resetDefaults: 'Reset Defaults',
+    plan: 'Plan',
+    incoming: 'Incoming',
+    pickups: 'Pickups',
+    impact: 'Impact',
+    settings: 'Settings',
+    production: 'Production',
+    history: 'History',
+    billing: 'Billing',
+  },
+  ta: {
+    appName: 'ரீப்ளேட்',
+    cluster: 'மதுரை பகுதி',
+    live: 'நேரலை',
+    lastUpdated: 'கடைசியாக புதுப்பிக்கப்பட்டது',
+    langEn: 'English',
+    langTa: 'தமிழ்',
+    save: 'சேமி',
+    saving: 'சேமிக்கப்படுகிறது...',
+    cancel: 'ரத்து செய்',
+    confirm: 'உறுதி செய்',
+    confirming: 'உறுதி செய்யப்படுகிறது...',
+    accept: 'ஏற்றுக்கொள்',
+    accepting: 'ஏற்கப்படுகிறது...',
+    reject: 'நிராகரி',
+    rejecting: 'நிராகரிக்கப்படுகிறது...',
+    collect: 'சேகரி',
+    collecting: 'சேகரிக்கப்படுகிறது...',
+    undo: 'செயல்தவிர்',
+    resetDefaults: 'இயல்புநிலைக்கு மாற்று',
+    plan: 'திட்டம்',
+    incoming: 'வந்தவை',
+    pickups: 'பிக்கப்கள்',
+    impact: 'தாக்கம்',
+    settings: 'அமைப்புகள்',
+    production: 'உற்பத்தி',
+    history: 'வரலாறு',
+    billing: 'கட்டணம்',
+  },
+};

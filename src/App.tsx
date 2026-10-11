@@ -7,6 +7,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SurplusLinkProvider, useSurplusLink } from './context/SurplusLinkContext';
 import { ToastProvider } from './components/shared/Toast';
+import { LanguageProvider } from './i18n/LanguageContext';
 import { TopBar } from './components/shared/TopBar';
 import { LandingPage } from './pages/LandingPage';
 import { ProviderLoginPage } from './pages/ProviderLoginPage';
@@ -75,42 +76,44 @@ export default function App() {
   return (
     <SurplusLinkProvider>
       <ToastProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* 1. Landing Gateway Page */}
-            <Route path="/" element={<LandingPage />} />
+        <LanguageProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* 1. Landing Gateway Page */}
+              <Route path="/" element={<LandingPage />} />
 
-            {/* 2. Distinct Authentication Login Pages */}
-            <Route path="/login/provider" element={<ProviderLoginPage />} />
-            <Route path="/login/ngo" element={<NgoLoginPage />} />
+              {/* 2. Distinct Authentication Login Pages */}
+              <Route path="/login/provider" element={<ProviderLoginPage />} />
+              <Route path="/login/ngo" element={<NgoLoginPage />} />
 
-            {/* 3. Public No-Login No-App Surplus Donation Page */}
-            <Route path="/donate/:ngoId" element={<PublicDonationPage />} />
+              {/* 3. Public No-Login No-App Surplus Donation Page */}
+              <Route path="/donate/:ngoId" element={<PublicDonationPage />} />
 
-            {/* 4. Protected Provider Application (mobile-first) */}
-            <Route
-              path="/provider/*"
-              element={
-                <ProtectedRoute allowedRole="provider">
-                  <ProviderAppLayout />
-                </ProtectedRoute>
-              }
-            />
+              {/* 4. Protected Provider Application (mobile-first) */}
+              <Route
+                path="/provider/*"
+                element={
+                  <ProtectedRoute allowedRole="provider">
+                    <ProviderAppLayout />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* 4. Protected NGO Application (desktop-first dashboard with sidebar) */}
-            <Route
-              path="/ngo/*"
-              element={
-                <ProtectedRoute allowedRole="ngo">
-                  <NgoAppLayout />
-                </ProtectedRoute>
-              }
-            />
+              {/* 4. Protected NGO Application (desktop-first dashboard with sidebar) */}
+              <Route
+                path="/ngo/*"
+                element={
+                  <ProtectedRoute allowedRole="ngo">
+                    <NgoAppLayout />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* 5. Catch-all: Redirect unknown routes to landing */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
+              {/* 5. Catch-all: Redirect unknown routes to landing */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </LanguageProvider>
       </ToastProvider>
     </SurplusLinkProvider>
   );

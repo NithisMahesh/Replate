@@ -808,7 +808,13 @@ export const PickupsRouteMap: React.FC<PickupsRouteMapProps> = ({
 
       {/* Map Display Container */}
       <div className="relative z-0 isolate h-[360px] sm:h-[400px] w-full">
-        <div ref={mapContainerRef} className="w-full h-full" />
+        <div
+          ref={mapContainerRef}
+          className="w-full h-full"
+          role="region"
+          aria-label="Interactive route map showing collection route stops and driver location"
+          tabIndex={0}
+        />
 
         {/* Legend Overlay on Map */}
         <div className="absolute bottom-3 left-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-2 rounded-xl border border-slate-200 text-[11px] shadow-sm flex flex-wrap items-center gap-2.5">

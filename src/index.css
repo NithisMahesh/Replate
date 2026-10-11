@@ -4,8 +4,14 @@
 @layer base {
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    color: #0f172a;
+    color: #0f172a; /* Slate 900 for high contrast >= 4.5:1 against #f8fafc */
     background-color: #f8fafc;
+  }
+
+  /* Accessible keyboard navigation: visible focus rings */
+  :focus-visible {
+    outline: 2px solid #059669 !important;
+    outline-offset: 2px !important;
   }
 }
 

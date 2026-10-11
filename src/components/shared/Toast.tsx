@@ -7,13 +7,23 @@ export interface ToastItem {
   id: string;
   type: ToastType;
   message: string;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 interface ToastContextValue {
-  showToast: (message: string, type?: ToastType) => void;
+  showToast: (
+    message: string,
+    type?: ToastType,
+    action?: { label: string; onClick: () => void },
+    durationMs?: number
+  ) => void;
   success: (message: string) => void;
   error: (message: string) => void;
   info: (message: string) => void;
+  undo: (message: string, onUndo: () => void) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
@@ -25,20 +35,34 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info') => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setToasts((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => {
-      removeToast(id);
-    }, 3500);
-  }, [removeToast]);
+  const showToast = useCallback(
+    (
+      message: string,
+      type: ToastType = 'info',
+      action?: { label: string; onClick: () => void },
+      durationMs: number = 3500
+    ) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      setToasts((prev) => [...prev, { id, type, message, action }]);
+      setTimeout(() => {
+        removeToast(id);
+      }, durationMs);
+    },
+    [removeToast]
+  );
 
   const success = useCallback((msg: string) => showToast(msg, 'success'), [showToast]);
   const error = useCallback((msg: string) => showToast(msg, 'error'), [showToast]);
   const info = useCallback((msg: string) => showToast(msg, 'info'), [showToast]);
+  const undo = useCallback(
+    (msg: string, onUndo: () => void) => {
+      showToast(msg, 'info', { label: 'Undo', onClick: onUndo }, 5000);
+    },
+    [showToast]
+  );
 
   return (
-    <ToastContext.Provider value={{ showToast, success, error, info }}>
+    <ToastContext.Provider value={{ showToast, success, error, info, undo }}>
       {children}
       {/* Toast container floating on screen */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0">
@@ -66,14 +90,28 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 {toast.message}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => removeToast(toast.id)}
-              className="p-1 rounded-lg hover:bg-black/15 transition-colors duration-150 shrink-0 cursor-pointer"
-              aria-label="Dismiss toast"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.action?.onClick();
+                    removeToast(toast.id);
+                  }}
+                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-white/20 hover:bg-white/30 text-white underline cursor-pointer"
+                >
+                  {toast.action.label}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => removeToast(toast.id)}
+                className="p-1 rounded-lg hover:bg-black/15 transition-colors duration-150 shrink-0 cursor-pointer"
+                aria-label="Dismiss toast"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -89,6 +127,7 @@ export function useToast() {
       success: (msg: string) => console.log('[Toast Success]', msg),
       error: (msg: string) => console.log('[Toast Error]', msg),
       info: (msg: string) => console.log('[Toast Info]', msg),
+      undo: (_msg: string, onUndo: () => void) => onUndo(),
     };
   }
   return context;

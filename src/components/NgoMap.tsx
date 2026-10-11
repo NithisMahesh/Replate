@@ -406,7 +406,13 @@ export const NgoMap: React.FC<NgoMapProps> = ({
 
   return (
     <div className="relative z-0 isolate w-full h-full min-h-[440px] rounded-xl overflow-hidden border border-slate-200 shadow-2xs">
-      <div ref={mapContainerRef} className="w-full h-full min-h-[440px]" />
+      <div
+        ref={mapContainerRef}
+        className="w-full h-full min-h-[440px]"
+        role="region"
+        aria-label="Interactive map of food providers and distribution hub"
+        tabIndex={0}
+      />
 
       {/* Map Legend Overlay: Availability Only */}
       <div className="absolute bottom-3 left-3 z-10 bg-white/95 backdrop-blur-xs px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs shadow-sm flex flex-wrap items-center gap-3">

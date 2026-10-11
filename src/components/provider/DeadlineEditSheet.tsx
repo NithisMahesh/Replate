@@ -50,10 +50,18 @@ export const DeadlineEditSheet: React.FC<DeadlineEditSheetProps> = ({
     return `${hour}:${String(m || 0).padStart(2, '0')} ${period}`;
   };
 
-  const handleSave = () => {
-    onSaveDeadline(time);
-    toast.success(`Pickup deadline for ${mealLabel} set to ${formatDisplay(time)}`);
-    onClose();
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await onSaveDeadline(time);
+      toast.success(`Pickup deadline for ${mealLabel} set to ${formatDisplay(time)}`);
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -67,6 +75,8 @@ export const DeadlineEditSheet: React.FC<DeadlineEditSheetProps> = ({
           variant="primary"
           size="md"
           fullWidth
+          loading={isSaving}
+          disabled={isSaving}
           icon={<Check className="h-4 w-4" />}
           onClick={handleSave}
         >
