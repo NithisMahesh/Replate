@@ -45,6 +45,7 @@ export function computePickupDeadline(
  */
 export function formatTime12(time24: string): string {
   if (!time24) return '';
+  if (time24.includes('AM') || time24.includes('PM')) return time24;
   const [hStr, mStr] = time24.split(':');
   const h = parseInt(hStr, 10);
   const m = parseInt(mStr, 10) || 0;

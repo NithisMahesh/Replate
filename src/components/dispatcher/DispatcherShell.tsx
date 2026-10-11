@@ -127,7 +127,7 @@ export const DispatcherShell: React.FC = () => {
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            Campus Map & Engine
+            Service Area Map & Engine
           </button>
           <button
             onClick={() => setActiveTab('scenarios')}
@@ -152,16 +152,16 @@ export const DispatcherShell: React.FC = () => {
         </div>
       </div>
 
-      {/* TAB 1: Campus Map & Engine */}
+      {/* TAB 1: Service Area Map & Engine */}
       {activeTab === 'map_engine' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* 1.5 km Campus Grid Map */}
+            {/* NGO Service Radius Grid Map */}
             <div className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
               <div className="p-3.5 border-b border-slate-100 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4 text-emerald-600" />
-                  <span className="font-semibold text-slate-900">1.5 km College Radius Network View</span>
+                  <span className="font-semibold text-slate-900">{ngo.serviceRadiusKm ?? 5.0} km Service Radius Network View</span>
                 </div>
                 <span className="text-slate-500 font-mono text-[11px]">
                   {providers.length} Providers • {confirmedDonations.length} Active Donations
@@ -181,7 +181,7 @@ export const DispatcherShell: React.FC = () => {
             <div className="lg:col-span-4 space-y-4">
               <Card
                 title="Cluster Provider Nodes (15)"
-                subtitle="Within 1.5 km of MIET Madurai"
+                subtitle={`Within Service Area (${ngo.serviceRadiusKm ?? 5.0} km radius)`}
               >
                 <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100 pr-1 text-xs">
                   {providers.map((p) => {
@@ -195,7 +195,7 @@ export const DispatcherShell: React.FC = () => {
                           <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                             <span className="capitalize">{p.type.replace('_', ' ')}</span>
                             <span>•</span>
-                            <span>{p.distanceKmFromCollege} km away</span>
+                            <span>{p.distanceKmFromNgo} km away</span>
                           </div>
                         </div>
                         <div>

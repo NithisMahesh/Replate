@@ -87,6 +87,48 @@ export const NgoImpactTab: React.FC<NgoImpactTabProps> = ({
         />
       </div>
 
+      {/* 2b. By Meal Breakdown */}
+      {metrics.byMeal && (
+        <Card
+          title="Impact by Meal Slot"
+          subtitle="Redistributed food breakdown across Breakfast, Lunch, and Dinner"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5" id="ngo-meal-impact-grid">
+            {(['morning', 'afternoon', 'night'] as const).map((slot) => {
+              const m = metrics.byMeal?.[slot] || { donated: 0, collected: 0, received: 0, distributed: 0 };
+              const label = slot === 'morning' ? 'Breakfast' : slot === 'afternoon' ? 'Lunch' : 'Dinner';
+              const windowTime = slot === 'morning' ? '06:00 – 10:00' : slot === 'afternoon' ? '12:00 – 15:00' : '19:00 – 23:00';
+              return (
+                <div key={slot} className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                    <span className="font-bold text-slate-900 text-sm">{label}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{windowTime}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Donated</span>
+                      <strong className="text-slate-800 text-sm">{m.donated}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Collected</span>
+                      <strong className="text-sky-700 text-sm">{m.collected}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Received</span>
+                      <strong className="text-amber-700 text-sm">{m.received}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Distributed</span>
+                      <strong className="text-emerald-700 text-sm">{m.distributed}</strong>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
       {/* 3. Funnel Chart using ngoImpact */}
       <ImpactFunnelCard
         metrics={metrics}

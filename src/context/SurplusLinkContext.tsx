@@ -1,6 +1,5 @@
-import React, { createContext, useContext, useReducer, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useReducer, useState, useEffect, useMemo } from 'react';
 import {
-  CollegeAnchor,
   Provider,
   ProviderDefaults,
   NGO,
@@ -15,9 +14,11 @@ import {
   ProviderType,
   ExcludedDonationRecord,
   CollectionPlan,
+  MealSlot,
+  MealSlotWindows,
+  VehiclePosition,
 } from '../types/surplusLink';
 import {
-  COLLEGE_ANCHOR,
   SEED_PROVIDERS,
   SEED_NGO,
   SEED_INITIAL_DONATIONS,
@@ -30,26 +31,52 @@ import {
   getSavedPlannerConfig,
   savePlannerConfig,
 } from '../config/plannerConfig';
-import { generateCollectionPlan } from '../utils/collectionPlanner';
+import { generateCollectionPlan, haversineRoadDistanceKm } from '../utils/collectionPlanner';
 import {
   createScenario1Donations,
   createScenario2Donations,
   createScenario3Donations,
 } from '../utils/plannerRuleTests';
 
-const STORAGE_KEY = 'surpluslink_madurai_state_v5';
+const STORAGE_KEY = 'replate_madurai_state_v8';
 const USERS_STORAGE_KEY = 'surpluslink_users_v2';
 const SESSION_STORAGE_KEY = 'surpluslink_session_v2';
 
 // Action Types
 type Action =
   | {
+      type: 'UPDATE_VEHICLE_POSITION';
+      payload: {
+        collectionId: string;
+        vehiclePosition: VehiclePosition;
+        routeProgress?: number;
+      };
+    }
+  | {
+      type: 'UPDATE_TRIP_DRIVER';
+      payload: {
+        collectionId: string;
+        driverName: string;
+        driverPhone?: string;
+      };
+    }
+  | {
       type: 'ADD_DONATION';
-      payload: Omit<FoodDonation, 'id' | 'createdAt' | 'status' | 'verificationOtp'>;
+      payload: Omit<FoodDonation, 'id' | 'createdAt' | 'status' | 'verificationOtp'> & {
+        id?: string;
+        status?: DonationStatus;
+      };
     }
   | {
       type: 'UPDATE_DONATION_STATUS';
       payload: { donationId: string; status: DonationStatus };
+    }
+  | {
+      type: 'UPDATE_DONATION';
+      payload: {
+        donationId: string;
+        updates: Partial<FoodDonation>;
+      };
     }
   | {
       type: 'ACCEPT_AND_DISPATCH_TRIP';
@@ -103,6 +130,39 @@ type Action =
       payload: { notificationId: string };
     }
   | {
+      type: 'SAVE_MEAL_PRODUCTION';
+      payload: {
+        providerId: string;
+        preparedQty: number;
+        preparationTime: string;
+        closingTime: string;
+        mealSlot?: MealSlot;
+      };
+    }
+  | {
+      type: 'UPDATE_PROVIDER_MEAL_WINDOWS';
+      payload: {
+        providerId: string;
+        windows: MealSlotWindows;
+      };
+    }
+  | {
+      type: 'CONNECT_BILLING';
+      payload: { providerId: string; connectorName: string };
+    }
+  | {
+      type: 'DISCONNECT_BILLING';
+      payload: { providerId: string };
+    }
+  | {
+      type: 'SYNC_BILLING';
+      payload: { providerId: string };
+    }
+  | {
+      type: 'TOGGLE_AUTO_FILL_SOLD_QTY';
+      payload: { providerId: string; enabled: boolean };
+    }
+  | {
       type: 'UPDATE_PROVIDER_DEFAULTS';
       payload: { providerId: string; defaults: Partial<ProviderDefaults> };
     }
@@ -131,6 +191,10 @@ type Action =
       payload: {
         ngo: NGO;
       };
+    }
+  | {
+      type: 'UPDATE_NGO_SETTINGS';
+      payload: Partial<NGO>;
     }
   | {
       type: 'LOAD_SCENARIO';
@@ -175,10 +239,43 @@ function loadInitialState(): SurplusLinkState {
       parsed.ngo
     ) {
       return {
-        providers: parsed.providers || SEED_PROVIDERS,
-        ngo: parsed.ngo || SEED_NGO,
-        donations: parsed.donations,
-        collections: parsed.collections,
+        providers: (parsed.providers || SEED_PROVIDERS).map((p: Provider) => ({
+          ...p,
+          distanceKmFromNgo: p.distanceKmFromNgo ?? haversineRoadDistanceKm(parsed.ngo?.lat || SEED_NGO.lat, parsed.ngo?.lng || SEED_NGO.lng, p.lat, p.lng),
+          closingTime: p.closingTime || p.defaults?.closingTime || '21:30',
+          mealSlotWindows: {
+            morning: p.mealSlotWindows?.morning || { start: '06:00', end: '10:00' },
+            afternoon: p.mealSlotWindows?.afternoon || { start: '12:00', end: '15:00' },
+            night: p.mealSlotWindows?.night || { start: '19:00', end: '23:00' },
+          },
+          billingConnection: p.billingConnection || { status: 'not_connected' },
+          defaults: p.defaults
+            ? {
+                ...p.defaults,
+                closingTime: p.defaults.closingTime || p.closingTime || '21:30',
+                usualPreparedQty: p.defaults.usualPreparedQty ?? 80,
+                usualSoldQty: p.defaults.usualSoldQty ?? 50,
+                usualDiscardQty: p.defaults.usualDiscardQty ?? 2,
+                preparationTime: p.defaults.preparationTime || p.preparationTime || '18:30',
+              }
+            : undefined,
+        })),
+        ngo: parsed.ngo ? { ...parsed.ngo, serviceRadiusKm: parsed.ngo.serviceRadiusKm ?? 5.0 } : SEED_NGO,
+        donations: (parsed.donations || []).map((d: FoodDonation) => ({
+          ...d,
+          mealSlot: d.mealSlot || 'night',
+          status: d.status || 'Confirmed',
+          source: d.source || 'provider_app',
+          verification: d.verification || (d.status === 'Submitted' ? 'unverified' : 'verified'),
+        })),
+        collections: parsed.collections.map((c: Collection) => ({
+          ...c,
+          status: c.status || 'Scheduled',
+          queuedReason: c.queuedReason,
+          mealSlot: c.mealSlot || 'night',
+          vehiclePosition: c.vehiclePosition,
+          routeProgress: c.routeProgress,
+        })),
         notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       };
     }
@@ -213,25 +310,34 @@ function loadInitialSession(): UserSession | null {
   return null;
 }
 
-function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLinkState {
+export function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLinkState {
   switch (action.type) {
     case 'ADD_DONATION': {
       const confirmed = action.payload.confirmedPortions ?? action.payload.portions ?? 0;
+      const status: DonationStatus = action.payload.status || 'Confirmed';
+      const isPublic = action.payload.source === 'qr_form' || status === 'Submitted';
       const newDonation: FoodDonation = {
         ...action.payload,
-        id: `don-${Date.now()}`,
+        mealSlot: action.payload.mealSlot || 'night',
+        id: action.payload.id || `don-${Date.now()}`,
         confirmedPortions: confirmed,
         portions: confirmed,
         verificationOtp: String(Math.floor(1000 + Math.random() * 9000)),
-        status: 'Confirmed',
+        status,
+        source: action.payload.source || 'provider_app',
+        verification: action.payload.verification || (isPublic ? 'unverified' : 'verified'),
         createdAt: new Date().toISOString(),
       };
       const notif: InAppNotification = {
         id: `notif-${Date.now()}`,
         targetRole: 'all',
         targetProviderId: action.payload.providerId,
-        title: `New Surplus Available: ${action.payload.providerName}`,
-        message: `${confirmed} portions of "${action.payload.foodItem}" logged. Ready for batch routing.`,
+        title: isPublic
+          ? `Public Surplus Submitted: ${action.payload.providerName}`
+          : `New Surplus Available: ${action.payload.providerName}`,
+        message: isPublic
+          ? `${confirmed} portions of "${action.payload.foodItem}" submitted without login. Pending review.`
+          : `${confirmed} portions of "${action.payload.foodItem}" logged. Ready for batch routing.`,
         type: 'success',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
@@ -251,12 +357,86 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
       };
     }
 
+    case 'UPDATE_DONATION': {
+      return {
+        ...state,
+        donations: state.donations.map((d) =>
+          d.id === action.payload.donationId ? { ...d, ...action.payload.updates } : d
+        ),
+      };
+    }
+
+    case 'UPDATE_VEHICLE_POSITION': {
+      const { collectionId, vehiclePosition, routeProgress } = action.payload;
+      return {
+        ...state,
+        collections: state.collections.map((c) => {
+          if (c.id !== collectionId) return c;
+          return {
+            ...c,
+            vehiclePosition,
+            routeProgress: routeProgress !== undefined ? routeProgress : c.routeProgress,
+          };
+        }),
+      };
+    }
+
+    case 'UPDATE_TRIP_DRIVER': {
+      const { collectionId, driverName, driverPhone } = action.payload;
+      return {
+        ...state,
+        collections: state.collections.map((c) => {
+          if (c.id !== collectionId) return c;
+          return {
+            ...c,
+            driver: {
+              name: driverName.trim() || c.driver.name,
+              phone: driverPhone ? driverPhone.trim() : c.driver.phone,
+            },
+          };
+        }),
+        donations: state.donations.map((d) => {
+          if (d.scheduledCollectionId !== collectionId) return d;
+          return {
+            ...d,
+            driverName: driverName.trim() || d.driverName,
+          };
+        }),
+      };
+    }
+
     case 'CREATE_COLLECTION': {
       const { trip, driverName } = action.payload;
-      const collectionId = `coll-${Date.now()}`;
+      const collectionId = action.payload.collectionId || `coll-${Date.now()}`;
       const now = new Date();
       const stopProgress: Collection['stopProgress'] = {};
       const newNotifications: InAppNotification[] = [];
+
+      // Double-acceptance guard: A donation can belong to only one collection.
+      const existingDonationIds = new Set(state.collections.flatMap((c) => c.donationIds));
+      const alreadyAccepted = trip.stops.some((s) => existingDonationIds.has(s.donationId));
+      if (alreadyAccepted) {
+        console.warn('Trip contains donations that are already part of a collection.');
+        return state;
+      }
+
+      // Sequential trip numbering across all plan generations
+      const maxTripNumber = state.collections.reduce((max, c) => Math.max(max, c.tripNumber || 0), 0);
+      const assignedTripNumber = maxTripNumber + 1;
+
+      // Vehicle availability check:
+      // If the NGO's van is already on an active trip (Scheduled or In Progress),
+      // newly accepted trip is created with status "Queued" ("Waiting for the van")
+      const hasActiveTrip = state.collections.some(
+        (c) => c.status === 'Scheduled' || c.status === 'In Progress'
+      );
+      const initialStatus: Collection['status'] = hasActiveTrip ? 'Queued' : 'Scheduled';
+      const queuedReason = hasActiveTrip ? 'Waiting for the van' : undefined;
+
+      const driver = {
+        name: driverName.trim() || state.ngo.vehicle.driverName,
+        phone: state.ngo.vehicle.driverPhone,
+      };
 
       trip.stops.forEach((s) => {
         const arrivalDate = new Date(now.getTime() + s.estimatedArrivalMinutesFromStart * 60 * 1000);
@@ -270,25 +450,36 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
           estimatedArrivalTimeFormatted: arrivalTimeFormatted,
         };
 
-        newNotifications.push({
-          id: `notif-${Date.now()}-${s.providerId}`,
-          targetRole: 'provider',
-          targetProviderId: s.providerId,
-          title: 'Van Pickup Scheduled!',
-          message: `${driverName.trim() || state.ngo.vehicle.driverName} is scheduled to pick up "${s.foodItem}" (${s.portions} portions) at approx ${arrivalTimeFormatted}.`,
-          type: 'info',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          relatedCollectionId: collectionId,
-        });
+        if (hasActiveTrip) {
+          newNotifications.push({
+            id: `notif-${Date.now()}-${s.providerId}`,
+            targetRole: 'provider',
+            targetProviderId: s.providerId,
+            title: 'Pickup Queued: Waiting for Van',
+            message: `Your donation "${s.foodItem}" (${s.portions} portions) is queued for collection. Scheduled once the active van route completes.`,
+            type: 'info',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            relatedCollectionId: collectionId,
+          });
+        } else {
+          newNotifications.push({
+            id: `notif-${Date.now()}-${s.providerId}`,
+            targetRole: 'provider',
+            targetProviderId: s.providerId,
+            title: 'Van Pickup Scheduled!',
+            message: `${driver.name} is scheduled to pick up "${s.foodItem}" (${s.portions} portions) at approx ${arrivalTimeFormatted}.`,
+            type: 'info',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            relatedCollectionId: collectionId,
+          });
+        }
       });
 
       const newCollection: Collection = {
         id: collectionId,
-        tripNumber: trip.tripNumber,
-        driver: {
-          name: driverName.trim() || state.ngo.vehicle.driverName,
-          phone: state.ngo.vehicle.driverPhone,
-        },
+        tripNumber: assignedTripNumber,
+        mealSlot: trip.mealSlot,
+        driver,
         donationIds: trip.stops.map((s) => s.donationId),
         route: {
           distanceKm: trip.distanceKm,
@@ -299,20 +490,33 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
           distanceSavedKm: trip.distanceSavedKm,
           distanceSavedPercent: trip.distanceSavedPercent,
         },
-        status: 'Scheduled',
+        status: initialStatus,
+        queuedReason,
         stopProgress,
-        scheduledAt: new Date().toISOString(),
+        scheduledAt: now.toISOString(),
       };
 
-      newNotifications.unshift({
-        id: `notif-${Date.now()}-ngo`,
-        targetRole: 'ngo',
-        title: `Trip ${trip.tripNumber} Collection Scheduled`,
-        message: `${newCollection.driver.name} assigned to collect ${trip.totalPortions} portions across ${trip.stops.length} stops.`,
-        type: 'success',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        relatedCollectionId: collectionId,
-      });
+      if (hasActiveTrip) {
+        newNotifications.unshift({
+          id: `notif-${Date.now()}-ngo`,
+          targetRole: 'ngo',
+          title: `Trip ${assignedTripNumber} Queued`,
+          message: `Queued behind active trip. ${trip.totalPortions} portions across ${trip.stops.length} stops waiting for van.`,
+          type: 'info',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          relatedCollectionId: collectionId,
+        });
+      } else {
+        newNotifications.unshift({
+          id: `notif-${Date.now()}-ngo`,
+          targetRole: 'ngo',
+          title: `Trip ${assignedTripNumber} Collection Scheduled`,
+          message: `${newCollection.driver.name} assigned to collect ${trip.totalPortions} portions across ${trip.stops.length} stops.`,
+          type: 'success',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          relatedCollectionId: collectionId,
+        });
+      }
 
       const updatedDonations = state.donations.map((d) => {
         if (stopProgress[d.id]) {
@@ -320,7 +524,7 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
             ...d,
             status: 'Scheduled' as DonationStatus,
             scheduledCollectionId: collectionId,
-            scheduledTripNumber: trip.tripNumber,
+            scheduledTripNumber: assignedTripNumber,
             driverName: newCollection.driver.name,
             estimatedPickupTime: stopProgress[d.id].estimatedArrivalTimeFormatted,
           };
@@ -361,44 +565,125 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
       };
 
       const stopStatuses = targetCollection.donationIds.map((id) => newStopProgress[id]?.status || 'Pending');
-      const allCollected = stopStatuses.every((s) => s === 'Collected');
+      const allCollected = stopStatuses.length > 0 && stopStatuses.every((s) => s === 'Collected');
       const anyFailed = stopStatuses.some((s) => s === 'Failed');
       const anyInProgress = stopStatuses.some((s) => s === 'En route' || s === 'Arrived');
+      const allDone = stopStatuses.length > 0 && stopStatuses.every((s) => s === 'Collected' || s === 'Failed');
 
       let colStatus: Collection['status'] = 'In Progress';
-      if (allCollected) colStatus = 'Completed';
+      if (allCollected || (allDone && !anyInProgress)) colStatus = 'Completed';
       else if (anyFailed && !anyInProgress) colStatus = 'Partially Failed';
 
+      const isTripFinished = colStatus === 'Completed' || colStatus === 'Partially Failed';
+
+      // Check if earlier trip completes, auto-start next queued trip
+      let nextQueuedTripId: string | null = null;
+      let recalculatedQueuedProgress: Collection['stopProgress'] | undefined;
+      const autoStartNotifications: InAppNotification[] = [];
+
+      if (isTripFinished) {
+        // Find if any OTHER active trip exists
+        const hasOtherActiveTrip = state.collections.some(
+          (c) => c.id !== collectionId && (c.status === 'Scheduled' || c.status === 'In Progress')
+        );
+        if (!hasOtherActiveTrip) {
+          // Van is free! Find the next queued trip (oldest queued first)
+          const queuedTrips = state.collections
+            .filter((c) => c.id !== collectionId && c.status === 'Queued')
+            .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+          if (queuedTrips.length > 0) {
+            const nextTrip = queuedTrips[0];
+            nextQueuedTripId = nextTrip.id;
+            const nowTime = new Date();
+            recalculatedQueuedProgress = { ...nextTrip.stopProgress };
+            Object.keys(recalculatedQueuedProgress).forEach((donId) => {
+              const stop = recalculatedQueuedProgress![donId];
+              const arrivalDate = new Date(nowTime.getTime() + (stop.estimatedArrivalMinutesFromStart || 15) * 60 * 1000);
+              const arrivalHours = String(arrivalDate.getHours()).padStart(2, '0');
+              const arrivalMins = String(arrivalDate.getMinutes()).padStart(2, '0');
+              recalculatedQueuedProgress![donId] = {
+                ...stop,
+                estimatedArrivalTimeFormatted: `${arrivalHours}:${arrivalMins}`,
+              };
+            });
+
+            autoStartNotifications.push({
+              id: `notif-${Date.now()}-autostart-ngo`,
+              targetRole: 'ngo',
+              title: `Trip ${nextTrip.tripNumber} Van Rolling`,
+              message: `Earlier trip completed. Van is now rolling for Trip ${nextTrip.tripNumber}!`,
+              type: 'success',
+              timestamp: timeStr,
+              relatedCollectionId: nextTrip.id,
+            });
+
+            nextTrip.donationIds.forEach((donId) => {
+              const d = state.donations.find((don) => don.id === donId);
+              if (d) {
+                autoStartNotifications.push({
+                  id: `notif-${Date.now()}-autostart-${d.providerId}`,
+                  targetRole: 'provider',
+                  targetProviderId: d.providerId,
+                  title: 'Van Dispatched for Pickup',
+                  message: `Van has finished its previous route and is now en route for your pickup "${d.foodItem}".`,
+                  type: 'info',
+                  timestamp: timeStr,
+                  relatedCollectionId: nextTrip.id,
+                });
+              }
+            });
+          }
+        }
+      }
+
       const updatedCollections = state.collections.map((c) => {
-        if (c.id !== collectionId) return c;
-        return {
-          ...c,
-          status: colStatus,
-          stopProgress: newStopProgress,
-          completedAt: colStatus === 'Completed' ? new Date().toISOString() : c.completedAt,
-        };
+        if (c.id === collectionId) {
+          return {
+            ...c,
+            status: colStatus,
+            stopProgress: newStopProgress,
+            completedAt: isTripFinished ? new Date().toISOString() : c.completedAt,
+          };
+        }
+        if (c.id === nextQueuedTripId) {
+          return {
+            ...c,
+            status: 'Scheduled' as Collection['status'],
+            queuedReason: undefined,
+            stopProgress: recalculatedQueuedProgress || c.stopProgress,
+          };
+        }
+        return c;
       });
 
       const updatedDonations = state.donations.map((d) => {
-        if (d.id !== donationId) return d;
-        if (newStatus === 'Collected') {
+        if (d.id === donationId) {
+          if (newStatus === 'Collected') {
+            return {
+              ...d,
+              status: 'Collected' as DonationStatus,
+              collectedPortions: actual,
+            };
+          }
+          if (newStatus === 'Failed') {
+            return {
+              ...d,
+              status: 'Failed' as DonationStatus,
+              failureReason: failReason || 'Collection failed',
+            };
+          }
           return {
             ...d,
-            status: 'Collected' as DonationStatus,
-            collectedPortions: actual,
+            status: newStatus as DonationStatus,
           };
         }
-        if (newStatus === 'Failed') {
+        if (nextQueuedTripId && recalculatedQueuedProgress && recalculatedQueuedProgress[d.id]) {
           return {
             ...d,
-            status: 'Failed' as DonationStatus,
-            failureReason: failReason || 'Collection failed',
+            estimatedPickupTime: recalculatedQueuedProgress[d.id].estimatedArrivalTimeFormatted,
           };
         }
-        return {
-          ...d,
-          status: newStatus as DonationStatus,
-        };
+        return d;
       });
 
       const newNotifications: InAppNotification[] = [];
@@ -446,7 +731,7 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
         ...state,
         collections: updatedCollections,
         donations: updatedDonations,
-        notifications: [...newNotifications, ...state.notifications],
+        notifications: [...autoStartNotifications, ...newNotifications, ...state.notifications],
       };
     }
 
@@ -628,7 +913,7 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
         {
           id: `demo-${now}-4`,
           providerId: 'prov-r1',
-          providerName: 'Murugan Idli Shop - College Road',
+          providerName: 'Murugan Idli Shop - West Masi St',
           providerType: 'restaurant',
           foodItem: 'Mallipoo Idlis, Medu Vada & Chutneys',
           category: 'snacks_tiffin',
@@ -683,6 +968,147 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
       };
     }
 
+    case 'SAVE_MEAL_PRODUCTION': {
+      const { providerId, preparedQty, preparationTime, closingTime, mealSlot } = action.payload;
+      return {
+        ...state,
+        providers: state.providers.map((p) => {
+          if (p.id !== providerId) return p;
+          const slot = mealSlot || 'night';
+          const currentDefaults: ProviderDefaults = p.defaults || {
+            usualFoodItem: p.type === 'bakery' ? 'Assorted Bread & Veg Puffs' : 'Dinner Meals & Rice',
+            category: p.type === 'bakery' ? 'bakery_bread' : 'cooked_meal',
+            storageType: p.type === 'bakery' ? 'room_temp' : 'hot_held',
+            closingTime: closingTime || p.closingTime || '21:30',
+            usualPreparedQty: preparedQty,
+            usualSoldQty: 50,
+            usualDiscardQty: 2,
+            preparationTime,
+          };
+          const updatedMealProductions = {
+            ...(p.mealProductions || {}),
+            [slot]: {
+              mealSlot: slot,
+              preparedQty,
+              preparationTime,
+              closingTime: closingTime || p.closingTime,
+              savedAt: new Date().toISOString(),
+            },
+          };
+          return {
+            ...p,
+            closingTime: closingTime || p.closingTime,
+            preparationTime,
+            preparedQty,
+            lastProduction: {
+              preparedQty,
+              preparationTime,
+              closingTime: closingTime || p.closingTime,
+              savedAt: new Date().toISOString(),
+            },
+            mealProductions: updatedMealProductions,
+            defaults: {
+              ...currentDefaults,
+              closingTime: closingTime || currentDefaults.closingTime || p.closingTime,
+              usualPreparedQty: preparedQty,
+              preparationTime,
+            },
+          };
+        }),
+      };
+    }
+
+    case 'UPDATE_PROVIDER_MEAL_WINDOWS': {
+      const { providerId, windows } = action.payload;
+      return {
+        ...state,
+        providers: state.providers.map((p) =>
+          p.id === providerId
+            ? { ...p, mealSlotWindows: { ...(p.mealSlotWindows || {}), ...windows } }
+            : p
+        ),
+      };
+    }
+
+    case 'CONNECT_BILLING': {
+      const { providerId, connectorName } = action.payload;
+      const nowIso = new Date().toISOString();
+      return {
+        ...state,
+        providers: state.providers.map((p) =>
+          p.id === providerId
+            ? {
+                ...p,
+                billingConnection: {
+                  status: 'connected',
+                  connectorName,
+                  connectedAt: nowIso,
+                  lastSyncedAt: nowIso,
+                  autoFillSoldQty: true,
+                  syncCount: 0,
+                },
+              }
+            : p
+        ),
+      };
+    }
+
+    case 'DISCONNECT_BILLING': {
+      const { providerId } = action.payload;
+      return {
+        ...state,
+        providers: state.providers.map((p) =>
+          p.id === providerId
+            ? {
+                ...p,
+                billingConnection: {
+                  status: 'not_connected',
+                  syncCount: 0,
+                },
+              }
+            : p
+        ),
+      };
+    }
+
+    case 'SYNC_BILLING': {
+      const { providerId } = action.payload;
+      const nowIso = new Date().toISOString();
+      return {
+        ...state,
+        providers: state.providers.map((p) =>
+          p.id === providerId
+            ? {
+                ...p,
+                billingConnection: {
+                  ...(p.billingConnection || { status: 'connected' }),
+                  status: 'connected',
+                  lastSyncedAt: nowIso,
+                  syncCount: ((p.billingConnection?.syncCount ?? 0) + 1),
+                },
+              }
+            : p
+        ),
+      };
+    }
+
+    case 'TOGGLE_AUTO_FILL_SOLD_QTY': {
+      const { providerId, enabled } = action.payload;
+      return {
+        ...state,
+        providers: state.providers.map((p) =>
+          p.id === providerId
+            ? {
+                ...p,
+                billingConnection: p.billingConnection
+                  ? { ...p.billingConnection, autoFillSoldQty: enabled }
+                  : { status: 'not_connected', autoFillSoldQty: enabled },
+              }
+            : p
+        ),
+      };
+    }
+
     case 'UPDATE_PROVIDER_DEFAULTS': {
       return {
         ...state,
@@ -690,6 +1116,7 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
           p.id === action.payload.providerId
             ? {
                 ...p,
+                closingTime: action.payload.defaults.closingTime || p.closingTime,
                 defaults: {
                   ...(p.defaults as ProviderDefaults),
                   ...action.payload.defaults,
@@ -776,6 +1203,16 @@ function surplusLinkReducer(state: SurplusLinkState, action: Action): SurplusLin
       };
     }
 
+    case 'UPDATE_NGO_SETTINGS': {
+      return {
+        ...state,
+        ngo: {
+          ...state.ngo,
+          ...action.payload,
+        },
+      };
+    }
+
     case 'LOAD_SCENARIO': {
       const { scenarioNumber } = action.payload;
       let scenarioItems: FoodDonation[] = [];
@@ -839,6 +1276,8 @@ export interface RegisterNgoInput {
   phone: string;
   email: string;
   password: string;
+  serviceRadiusKm?: number;
+  serviceRadius?: number;
 }
 
 interface SurplusLinkContextType {
@@ -857,7 +1296,6 @@ interface SurplusLinkContextType {
   selectedProvider: Provider;
   setSelectedProviderId: (id: string) => void;
   
-  college: CollegeAnchor;
   providers: Provider[];
   ngo: NGO;
   donations: FoodDonation[];
@@ -866,10 +1304,20 @@ interface SurplusLinkContextType {
   
   // Mutator Actions
   addDonation: (
-    donation: Omit<FoodDonation, 'id' | 'createdAt' | 'status' | 'verificationOtp'>
+    donation: Omit<FoodDonation, 'id' | 'createdAt' | 'status' | 'verificationOtp'> & {
+      id?: string;
+      status?: DonationStatus;
+    }
   ) => void;
+  updateDonation: (donationId: string, updates: Partial<FoodDonation>) => void;
   updateDonationStatus: (donationId: string, status: DonationStatus) => void;
-  acceptTripCollection: (trip: TripPlan, driverName: string) => void;
+  acceptTripCollection: (trip: TripPlan, driverName: string, collectionId?: string) => string;
+  updateTripDriver: (collectionId: string, driverName: string, driverPhone?: string) => void;
+  updateVehiclePosition: (
+    collectionId: string,
+    vehiclePosition: VehiclePosition,
+    routeProgress?: number
+  ) => void;
   updateStopProgress: (
     collectionId: string,
     donationId: string,
@@ -886,6 +1334,20 @@ interface SurplusLinkContextType {
   loadDemoDonationsBatch: () => void;
   dismissNotification: (notificationId: string) => void;
   updateProviderDefaults: (providerId: string, defaults: Partial<ProviderDefaults>) => void;
+  saveMealProduction: (
+    providerId: string,
+    data: { preparedQty: number; preparationTime: string; closingTime: string },
+    mealSlot?: MealSlot
+  ) => void;
+  updateProviderMealWindows: (
+    providerId: string,
+    windows: MealSlotWindows
+  ) => void;
+  connectBilling: (providerId: string, connectorName: string) => void;
+  disconnectBilling: (providerId: string) => void;
+  syncBilling: (providerId: string) => void;
+  toggleAutoFillSoldQty: (providerId: string, enabled: boolean) => void;
+  updateNgoSettings: (settings: Partial<NGO>) => void;
   skipTonightDonation: (providerId: string) => void;
   unskipTonightDonation: (providerId: string) => void;
   loadScenario: (scenarioNumber: 1 | 2 | 3) => void;
@@ -1017,13 +1479,17 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
 
     const newProviderId = `prov-${Date.now()}`;
+    const pLat = Number((state.ngo.lat + (Math.random() - 0.5) * 0.04).toFixed(4));
+    const pLng = Number((state.ngo.lng + (Math.random() - 0.5) * 0.04).toFixed(4));
+    const distFromNgo = haversineRoadDistanceKm(state.ngo.lat, state.ngo.lng, pLat, pLng);
+
     const newProvider: Provider = {
       id: newProviderId,
       name: data.name.trim(),
       type: data.type,
-      lat: Number((9.9252 + (Math.random() - 0.5) * 0.01).toFixed(4)),
-      lng: Number((78.1198 + (Math.random() - 0.5) * 0.01).toFixed(4)),
-      distanceKmFromCollege: 0.65,
+      lat: pLat,
+      lng: pLng,
+      distanceKmFromNgo: distFromNgo,
       closingTime: data.closingTime || '21:30',
       address: data.address.trim(),
       phone: data.phone.trim(),
@@ -1080,7 +1546,7 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
       name: data.name.trim(),
       lat: 9.9482,
       lng: 78.1365,
-      distanceKmFromCollege: 3.0,
+      serviceRadiusKm: data.serviceRadiusKm ?? data.serviceRadius ?? 5.0,
       address: data.address.trim(),
       nightlyPeopleFed: data.nightlyPeopleFed || 80,
       vanCapacityPortions: data.vanCapacity || 60,
@@ -1155,17 +1621,44 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const addDonation = (
-    donation: Omit<FoodDonation, 'id' | 'createdAt' | 'status' | 'verificationOtp'>
+    donation: Omit<FoodDonation, 'id' | 'createdAt' | 'status' | 'verificationOtp'> & {
+      id?: string;
+      status?: DonationStatus;
+    }
   ) => {
     dispatch({ type: 'ADD_DONATION', payload: donation });
+  };
+
+  const updateDonation = (donationId: string, updates: Partial<FoodDonation>) => {
+    dispatch({ type: 'UPDATE_DONATION', payload: { donationId, updates } });
   };
 
   const updateDonationStatus = (donationId: string, status: DonationStatus) => {
     dispatch({ type: 'UPDATE_DONATION_STATUS', payload: { donationId, status } });
   };
 
-  const acceptTripCollection = (trip: TripPlan, driverName: string) => {
-    dispatch({ type: 'CREATE_COLLECTION', payload: { trip, driverName } });
+  const acceptTripCollection = (trip: TripPlan, driverName: string, collectionId?: string) => {
+    const id = collectionId || `coll-${Date.now()}`;
+    dispatch({ type: 'CREATE_COLLECTION', payload: { trip, driverName, collectionId: id } });
+    return id;
+  };
+
+  const updateTripDriver = (collectionId: string, driverName: string, driverPhone?: string) => {
+    dispatch({
+      type: 'UPDATE_TRIP_DRIVER',
+      payload: { collectionId, driverName, driverPhone },
+    });
+  };
+
+  const updateVehiclePosition = (
+    collectionId: string,
+    vehiclePosition: VehiclePosition,
+    routeProgress?: number
+  ) => {
+    dispatch({
+      type: 'UPDATE_VEHICLE_POSITION',
+      payload: { collectionId, vehiclePosition, routeProgress },
+    });
   };
 
   const updateStopProgress = (
@@ -1212,6 +1705,61 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
     defaults: Partial<ProviderDefaults>
   ) => {
     dispatch({ type: 'UPDATE_PROVIDER_DEFAULTS', payload: { providerId, defaults } });
+  };
+
+  const saveMealProduction = (
+    providerId: string,
+    data: { preparedQty: number; preparationTime: string; closingTime: string },
+    mealSlot?: MealSlot
+  ) => {
+    dispatch({
+      type: 'SAVE_MEAL_PRODUCTION',
+      payload: {
+        providerId,
+        preparedQty: data.preparedQty,
+        preparationTime: data.preparationTime,
+        closingTime: data.closingTime,
+        mealSlot,
+      },
+    });
+  };
+
+  const updateProviderMealWindows = (
+    providerId: string,
+    windows: MealSlotWindows
+  ) => {
+    dispatch({
+      type: 'UPDATE_PROVIDER_MEAL_WINDOWS',
+      payload: { providerId, windows },
+    });
+  };
+
+  const connectBilling = (providerId: string, connectorName: string) => {
+    dispatch({
+      type: 'CONNECT_BILLING',
+      payload: { providerId, connectorName },
+    });
+  };
+
+  const disconnectBilling = (providerId: string) => {
+    dispatch({
+      type: 'DISCONNECT_BILLING',
+      payload: { providerId },
+    });
+  };
+
+  const syncBilling = (providerId: string) => {
+    dispatch({
+      type: 'SYNC_BILLING',
+      payload: { providerId },
+    });
+  };
+
+  const toggleAutoFillSoldQty = (providerId: string, enabled: boolean) => {
+    dispatch({
+      type: 'TOGGLE_AUTO_FILL_SOLD_QTY',
+      payload: { providerId, enabled },
+    });
   };
 
   const skipTonightDonation = (providerId: string) => {
@@ -1269,21 +1817,32 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
         switchDemoAccount,
         selectedProvider,
         setSelectedProviderId,
-        college: COLLEGE_ANCHOR,
         providers: state.providers,
         ngo: state.ngo,
         donations: state.donations,
         collections: state.collections,
         notifications: state.notifications,
         addDonation,
+        updateDonation,
         updateDonationStatus,
         acceptTripCollection,
+        updateTripDriver,
+        updateVehiclePosition,
         updateStopProgress,
         recordCollectionReceived,
         recordCollectionDistributed,
         loadDemoDonationsBatch,
         dismissNotification,
         updateProviderDefaults,
+        saveMealProduction,
+        updateProviderMealWindows,
+        connectBilling,
+        disconnectBilling,
+        syncBilling,
+        toggleAutoFillSoldQty,
+        updateNgoSettings: (settings: Partial<NGO>) => {
+          dispatch({ type: 'UPDATE_NGO_SETTINGS', payload: settings });
+        },
         skipTonightDonation,
         unskipTonightDonation,
         loadScenario,

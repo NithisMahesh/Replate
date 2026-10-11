@@ -58,7 +58,7 @@ export const MissingDefaultsSheet: React.FC<MissingDefaultsSheetProps> = ({
       usualSoldQty: currentDefaults?.usualSoldQty || 50,
       usualDiscardQty: currentDefaults?.usualDiscardQty || 2,
     });
-    toast.success('Saved kitchen defaults for tonight and future donations');
+    toast.success('Saved kitchen defaults for today and future donations');
     onClose();
   };
 

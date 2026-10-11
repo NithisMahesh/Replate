@@ -8,12 +8,12 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SurplusLinkProvider, useSurplusLink } from './context/SurplusLinkContext';
 import { ToastProvider } from './components/shared/Toast';
 import { TopBar } from './components/shared/TopBar';
-import { ClusterOverviewBar } from './components/shared/ClusterOverviewBar';
 import { LandingPage } from './pages/LandingPage';
 import { ProviderLoginPage } from './pages/ProviderLoginPage';
 import { NgoLoginPage } from './pages/NgoLoginPage';
 import { ProviderShell } from './components/ProviderShell';
 import { NgoShell } from './components/NgoShell';
+import { PublicDonationPage } from './pages/PublicDonationPage';
 
 // Strict Route Guard enforcing role-based separation
 interface ProtectedRouteProps {
@@ -42,7 +42,6 @@ const ProviderAppLayout: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <TopBar />
-      <ClusterOverviewBar />
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <ProviderShell />
       </main>
@@ -60,7 +59,6 @@ const NgoAppLayout: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <TopBar />
-      <ClusterOverviewBar />
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <NgoShell />
       </main>
@@ -86,7 +84,10 @@ export default function App() {
             <Route path="/login/provider" element={<ProviderLoginPage />} />
             <Route path="/login/ngo" element={<NgoLoginPage />} />
 
-            {/* 3. Protected Provider Application (mobile-first) */}
+            {/* 3. Public No-Login No-App Surplus Donation Page */}
+            <Route path="/donate/:ngoId" element={<PublicDonationPage />} />
+
+            {/* 4. Protected Provider Application (mobile-first) */}
             <Route
               path="/provider/*"
               element={

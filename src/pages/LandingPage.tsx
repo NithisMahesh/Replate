@@ -29,7 +29,7 @@ export const LandingPage: React.FC = () => {
             </div>
             <div>
               <span className="text-lg font-bold tracking-tight text-slate-900 block leading-tight">
-                NourishRoute
+                Replate
               </span>
               <span className="text-[10px] text-slate-500 block leading-tight">
                 Smart Food Redistribution
@@ -37,7 +37,7 @@ export const LandingPage: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs">
-            <span className="hidden sm:inline text-slate-500">Madurai Campus Cluster Pilot</span>
+            <span className="hidden sm:inline text-slate-500">Madurai City Food Recovery Network</span>
             <span className="bg-emerald-50 text-emerald-800 font-semibold px-2.5 py-1 rounded-full border border-emerald-200">
               Active Network
             </span>
@@ -50,7 +50,7 @@ export const LandingPage: React.FC = () => {
         {/* Badge */}
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold mb-6">
           <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-          <span>Connecting 15 campus food providers with nightly NGO feeding operations</span>
+          <span>Connecting 15 local food providers with nightly NGO feeding operations</span>
         </div>
 
         {/* Headline & Value Proposition */}
@@ -148,7 +148,7 @@ export const LandingPage: React.FC = () => {
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-5 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4">
-          NourishRoute • Madurai Cluster Food Redistribution Network
+          Replate • Madurai Cluster Food Redistribution Network
         </div>
       </footer>
     </div>

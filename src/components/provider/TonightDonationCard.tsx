@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
-import { FoodDonation } from '../../types/surplusLink';
+import { FoodDonation, MealSlot } from '../../types/surplusLink';
 import { ChevronDown, ChevronUp, Clock, CheckCircle2, Truck, ShieldCheck, RotateCcw, Sparkles } from 'lucide-react';
 import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
+import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
+
+export interface SoldQuantityMode {
+  isBillingConnected: boolean;
+  isAuto: boolean;
+  isOverridden: boolean;
+  onOverride: (newSold: number) => void;
+  onResetToAuto: () => void;
+}
 
 interface TonightDonationCardProps {
   surplusPortions: number;
@@ -19,6 +28,9 @@ interface TonightDonationCardProps {
   onOpenMissingDetails: () => void;
   isApproved?: boolean;
   exclusionBanner?: { reasonLabel: string; detail: string } | null;
+  isProductionSaved?: boolean;
+  mealSlot?: MealSlot;
+  soldMode?: SoldQuantityMode;
 }
 
 export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
@@ -36,23 +48,51 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
   onOpenMissingDetails,
   isApproved = true,
   exclusionBanner,
+  isProductionSaved = true,
+  mealSlot = 'night',
+  soldMode,
 }) => {
   const [showCalculation, setShowCalculation] = useState(false);
+  const [isEditingSold, setIsEditingSold] = useState(false);
+  const [soldInput, setSoldInput] = useState(String(calculation.sold));
   const toast = useToast();
+  const mealLabel = getMealSlotLabel(mealSlot);
+
+  React.useEffect(() => {
+    setSoldInput(String(calculation.sold));
+    setIsEditingSold(false);
+  }, [calculation.sold, mealSlot]);
+
+  const handleSaveSold = () => {
+    const val = parseInt(soldInput, 10);
+    if (isNaN(val) || val < 0) {
+      toast.error('Please enter a valid sold quantity (0 or more)');
+      return;
+    }
+    if (soldMode?.onOverride) {
+      soldMode.onOverride(val);
+      toast.success(
+        soldMode.isBillingConnected
+          ? `Sold quantity manually overridden to ${val} portions`
+          : `Updated sold quantity to ${val} portions`
+      );
+    }
+    setIsEditingSold(false);
+  };
 
   const handleConfirmWithToast = () => {
     onConfirm();
-    toast.success(`Confirmed ${surplusPortions} portions for tonight!`);
+    toast.success(`Confirmed ${surplusPortions} portions for ${mealLabel.toLowerCase()}!`);
   };
 
   const handleSkipWithToast = () => {
     onNoSurplusTonight();
-    toast.info('Recorded: No surplus tonight');
+    toast.info(`Recorded: No surplus for ${mealLabel.toLowerCase()}`);
   };
 
   const handleUnskipWithToast = () => {
     onUnskip();
-    toast.info('Surplus logging enabled for tonight');
+    toast.info(`Surplus logging enabled for ${mealLabel.toLowerCase()}`);
   };
 
   if (isSkippedTonight) {
@@ -63,10 +103,10 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
         </div>
         <div className="space-y-1">
           <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 tracking-tight">
-            No surplus logged tonight
+            No surplus logged for {mealLabel.toLowerCase()}
           </h2>
           <p className="text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
-            Your kitchen is logged as zero surplus for tonight. Dispatchers have updated collection routes.
+            Your kitchen is logged as zero surplus for {mealLabel.toLowerCase()}. Dispatchers have updated collection routes.
           </p>
         </div>
         <div className="pt-2">
@@ -105,7 +145,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
           <div>
             <div className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5 mb-1">
               <CheckCircle2 className="h-4 w-4" />
-              <span>Tonight's Donation Published</span>
+              <span>{mealLabel} Donation Published</span>
             </div>
             <h2 className="text-2xl font-semibold text-slate-900 tracking-tight">
               {tonightDonation.confirmedPortions} portions confirmed
@@ -181,7 +221,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
 
       <div className="space-y-2">
         <h2 className="text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight leading-tight">
-          You may have {surplusPortions} portions of surplus tonight
+          You may have {surplusPortions} portions of surplus for {mealLabel}
         </h2>
         <div className="flex items-center gap-2 pt-1">
           <button
@@ -196,31 +236,149 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
         </div>
       </div>
 
-      {/* Collapsed calculation section */}
-      <div className="border border-slate-200/80 rounded-xl bg-slate-50/70 overflow-hidden text-xs">
-        <button
-          type="button"
-          onClick={() => setShowCalculation(!showCalculation)}
-          className="min-h-[44px] w-full px-4 py-2.5 flex items-center justify-between text-slate-600 hover:text-slate-900 text-left font-medium transition-colors duration-150 cursor-pointer"
-        >
-          <span className="flex items-center gap-2">
+      {/* Estimation Breakdown Section */}
+      <div className="border border-slate-200/80 rounded-2xl bg-slate-50/70 p-4 text-xs space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="font-bold text-slate-800 flex items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-            <span>How we estimated this</span>
+            <span>Surplus estimation math ({mealLabel})</span>
           </span>
-          {showCalculation ? (
-            <ChevronUp className="h-4 w-4 text-slate-400" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-slate-400" />
-          )}
-        </button>
-        {showCalculation && (
-          <div className="px-4 pb-3 pt-1 border-t border-slate-200/60 text-slate-600 space-y-1.5">
-            <div className="font-mono text-xs bg-white p-2.5 rounded-lg border border-slate-200 text-slate-800">
-              {calculation.prepared} prepared − {calculation.sold} sold − {calculation.discards} discards = <strong className="text-emerald-700">{surplusPortions} portions</strong>
-            </div>
-            <p className="text-xs text-slate-500">{calculation.source}</p>
+          <span className="font-mono text-[11px] text-slate-600">
+            {calculation.prepared} − {calculation.sold} − {calculation.discards} = <strong className="text-emerald-700 font-bold">{surplusPortions} portions</strong>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          {/* 1. Prepared */}
+          <div className="p-3 bg-white rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">
+              1. Prepared
+            </span>
+            <span className="text-sm font-bold text-slate-800 font-mono mt-0.5 block">
+              {calculation.prepared} portions
+            </span>
+            <span className="text-[10px] text-slate-400">Meal production above</span>
           </div>
-        )}
+
+          {/* 2. Sold */}
+          <div className="p-3 bg-white rounded-xl border border-slate-200/80 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                2. Sold
+              </span>
+              {soldMode?.isBillingConnected && soldMode?.isAuto && (
+                <span
+                  id="sold-qty-auto-badge"
+                  className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300"
+                >
+                  Auto
+                </span>
+              )}
+              {soldMode?.isBillingConnected && soldMode?.isOverridden && (
+                <span
+                  id="sold-qty-manual-override-badge"
+                  className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300"
+                >
+                  Manual override
+                </span>
+              )}
+              {!soldMode?.isBillingConnected && (
+                <span className="text-[9px] text-slate-400 font-medium">Manual</span>
+              )}
+            </div>
+
+            {isEditingSold ? (
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <input
+                  type="number"
+                  min="0"
+                  id="input-override-sold-qty"
+                  value={soldInput}
+                  onChange={(e) => setSoldInput(e.target.value)}
+                  className="w-16 px-1.5 py-0.5 text-xs font-mono font-bold border rounded-lg border-slate-300 focus:ring-1 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  id="btn-save-override-sold-qty"
+                  onClick={handleSaveSold}
+                  className="px-2 py-0.5 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg cursor-pointer"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingSold(false)}
+                  className="px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between pt-0.5">
+                <span className="text-sm font-bold text-slate-800 font-mono" id="sold-qty-display">
+                  {calculation.sold} portions
+                </span>
+
+                {soldMode?.isBillingConnected ? (
+                  soldMode?.isOverridden ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        id="btn-edit-override-sold-qty"
+                        onClick={() => setIsEditingSold(true)}
+                        className="text-[10px] font-semibold text-amber-800 hover:underline cursor-pointer"
+                      >
+                        Edit
+                      </button>
+                      <span className="text-slate-300">•</span>
+                      <button
+                        type="button"
+                        id="btn-reset-auto-sold-qty"
+                        onClick={() => {
+                          soldMode.onResetToAuto();
+                          toast.info('Reverted to live POS auto-sync');
+                        }}
+                        className="text-[10px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                      >
+                        Reset to Auto
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      id="btn-override-sold-qty"
+                      onClick={() => setIsEditingSold(true)}
+                      className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
+                    >
+                      Override
+                    </button>
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    id="btn-edit-manual-sold-qty"
+                    onClick={() => setIsEditingSold(true)}
+                    className="text-[10px] font-semibold text-slate-600 hover:text-slate-900 underline cursor-pointer"
+                  >
+                    Change
+                  </button>
+                )}
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 truncate">{calculation.source}</p>
+          </div>
+
+          {/* 3. Discards */}
+          <div className="p-3 bg-white rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">
+              3. Discards
+            </span>
+            <span className="text-sm font-bold text-slate-800 font-mono mt-0.5 block">
+              {calculation.discards} portions
+            </span>
+            <span className="text-[10px] text-slate-400">Buffer / kitchen waste</span>
+          </div>
+        </div>
       </div>
 
       {/* Pending approval notice */}
@@ -248,8 +406,20 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
           >
             Approval Required to Confirm Surplus
           </Button>
+        ) : !isProductionSaved ? (
+          <Button
+            id="confirm-surplus-btn"
+            variant="secondary"
+            size="lg"
+            fullWidth
+            disabled
+            className="opacity-70 cursor-not-allowed bg-slate-100 text-slate-600 border-slate-300 font-semibold"
+          >
+            Save Meal Production above to confirm surplus
+          </Button>
         ) : hasIncompleteDefaults ? (
           <Button
+            id="confirm-surplus-btn"
             variant="primary"
             size="lg"
             fullWidth
@@ -260,6 +430,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
           </Button>
         ) : (
           <Button
+            id="confirm-surplus-btn"
             variant="primary"
             size="lg"
             fullWidth
@@ -285,9 +456,9 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
           size="md"
           fullWidth
           onClick={handleSkipWithToast}
-          className="hover:!bg-rose-50 hover:!text-rose-700 hover:!border-rose-200"
+          className="hover:!bg-rose-50 hover:!text-rose-700 hover:!border-rose-200 text-xs sm:text-sm"
         >
-          No surplus tonight
+          No surplus for {mealLabel}
         </Button>
       </div>
     </div>

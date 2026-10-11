@@ -35,7 +35,7 @@ export const NgoOverviewHeader: React.FC<NgoOverviewHeaderProps> = ({
               <MapPin className="h-3.5 w-3.5 text-slate-400" />
               <span>{ngo.address}</span>
               <span>•</span>
-              <span className="text-emerald-700 font-medium">{ngo.distanceKmFromCollege} km from MIET</span>
+              <span className="text-emerald-700 font-medium">{ngo.serviceRadiusKm ?? 5.0} km service radius</span>
             </p>
           </div>
         </div>

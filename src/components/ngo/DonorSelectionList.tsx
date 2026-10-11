@@ -1,10 +1,11 @@
 import React from 'react';
-import { FoodDonation } from '../../types/surplusLink';
+import { FoodDonation, MealSlot } from '../../types/surplusLink';
 import { Sparkles, Route, AlertTriangle } from 'lucide-react';
 import { Button } from '../shared/Button';
 import { Card } from '../shared/Card';
 import { EmptyState } from '../shared/EmptyState';
 import { useToast } from '../shared/Toast';
+import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
 
 interface DonorSelectionListProps {
   donations: FoodDonation[];
@@ -16,6 +17,7 @@ interface DonorSelectionListProps {
   onGeneratePlan: () => void;
   isGenerating: boolean;
   vanCapacity: number;
+  mealSlot?: MealSlot;
 }
 
 export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
@@ -28,6 +30,7 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
   onGeneratePlan,
   isGenerating,
   vanCapacity,
+  mealSlot,
 }) => {
   const toast = useToast();
   const selectedDonations = donations.filter((d) => selectedDonationIds.includes(d.id));
@@ -37,6 +40,7 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
   );
   const percentCapacity = Math.round((totalPortions / vanCapacity) * 100);
   const isOverCapacity = totalPortions > vanCapacity;
+  const mealLabel = mealSlot ? getMealSlotLabel(mealSlot) : '';
 
   const handleLoadDemo = () => {
     onLoadDemoBatch();
@@ -45,8 +49,8 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
 
   return (
     <Card
-      title={`Confirmed Donors (${donations.length})`}
-      subtitle="Select donors to batch into collection circuits"
+      title={`Confirmed ${mealLabel} Donors (${donations.length})`}
+      subtitle={`Select ${mealLabel.toLowerCase()} donors to batch into collection circuits`}
       action={
         donations.length === 0 ? (
           <Button
@@ -152,10 +156,22 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
                       className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500 cursor-pointer accent-emerald-600 shrink-0"
                     />
                     <div className="min-w-0">
-                      <div className="text-xs font-bold text-slate-900 truncate">{d.providerName}</div>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="text-xs font-bold text-slate-900 truncate">{d.providerName}</span>
+                        {d.source === 'qr_form' && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-md font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                            QR
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-slate-500 truncate max-w-[200px] sm:max-w-xs">
                         {d.foodItem} • By {d.collectionDeadline}
                       </div>
+                      {d.exclusionRecord && (
+                        <div className="text-[10px] font-semibold text-rose-700 mt-0.5 truncate">
+                          Cannot dispatch: {d.exclusionRecord.reasonLabel}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="text-right shrink-0">

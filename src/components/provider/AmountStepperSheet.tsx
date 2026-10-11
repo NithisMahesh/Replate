@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Minus, Plus } from 'lucide-react';
+import { MealSlot } from '../../types/surplusLink';
+import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
 import { BottomSheet } from '../shared/BottomSheet';
 import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
@@ -9,6 +11,7 @@ interface AmountStepperSheetProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (amount: number) => void;
+  mealSlot?: MealSlot;
 }
 
 export const AmountStepperSheet: React.FC<AmountStepperSheetProps> = ({
@@ -16,6 +19,7 @@ export const AmountStepperSheet: React.FC<AmountStepperSheetProps> = ({
   isOpen,
   onClose,
   onSave,
+  mealSlot,
 }) => {
   const [amount, setAmount] = useState(initialAmount);
   const toast = useToast();
@@ -30,7 +34,11 @@ export const AmountStepperSheet: React.FC<AmountStepperSheetProps> = ({
 
   const handleSave = () => {
     onSave(amount);
-    toast.success(`Updated tonight's surplus to ${amount} portions`);
+    toast.success(
+      mealSlot
+        ? `Updated ${getMealSlotLabel(mealSlot).toLowerCase()} surplus to ${amount} portions`
+        : `Updated surplus to ${amount} portions`
+    );
     onClose();
   };
 
@@ -39,7 +47,11 @@ export const AmountStepperSheet: React.FC<AmountStepperSheetProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Adjust Surplus Amount"
-      subtitle="Update portions available for tonight's pickup"
+      subtitle={
+        mealSlot
+          ? `Update portions available for ${getMealSlotLabel(mealSlot).toLowerCase()} pickup`
+          : 'Update portions available for pickup'
+      }
       footer={
         <Button variant="primary" size="lg" fullWidth onClick={handleSave}>
           Save {amount} portions

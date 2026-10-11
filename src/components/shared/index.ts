@@ -7,4 +7,3 @@ export * from './EmptyState';
 export * from './Toast';
 export * from './TopBar';
 export * from './ImpactFunnelCard';
-export * from './ClusterOverviewBar';

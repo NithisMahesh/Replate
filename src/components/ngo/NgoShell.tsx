@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSurplusLink } from '../../context/SurplusLinkContext';
-import { CollectionPlan, TripPlan } from '../../types/surplusLink';
+import { CollectionPlan, TripPlan, MealSlot, FoodDonation } from '../../types/surplusLink';
 import { confirmedPool, ngoImpact } from '../../selectors';
 import { generateCollectionPlan } from '../../utils/collectionPlanner';
+import { getCurrentMealSlot, getMealSlotLabel } from '../../utils/posAndPredictionUtils';
 import { DonorSelectionList } from './DonorSelectionList';
 import { GeneratedPlanGroups } from './GeneratedPlanGroups';
+import { PlanGeneratedModal } from './PlanGeneratedModal';
 import { PickupsTab } from './PickupsTab';
 import { NgoImpactTab } from './NgoImpactTab';
 import { NgoSettingsTab } from './NgoSettingsTab';
 import { NgoMap } from '../NgoMap';
 import { useToast } from '../shared/Toast';
+import { IncomingInboxTab } from './IncomingInboxTab';
 import {
   Route,
   Truck,
@@ -18,9 +21,11 @@ import {
   HeartHandshake,
   MapPin,
   Users,
+  Clock,
+  Inbox,
 } from 'lucide-react';
 
-export type NgoTab = 'plan' | 'pickups' | 'impact' | 'settings';
+export type NgoTab = 'plan' | 'incoming' | 'pickups' | 'impact' | 'settings';
 
 export const NgoShell: React.FC = () => {
   const {
@@ -29,6 +34,8 @@ export const NgoShell: React.FC = () => {
     donations,
     collections,
     acceptTripCollection,
+    updateTripDriver,
+    updateVehiclePosition,
     updateStopProgress,
     recordCollectionReceived,
     recordCollectionDistributed,
@@ -39,13 +46,87 @@ export const NgoShell: React.FC = () => {
 
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<NgoTab>('plan');
+  const [activeMealSlot, setActiveMealSlot] = useState<MealSlot>(getCurrentMealSlot);
   const [collectionPlan, setCollectionPlan] = useState<CollectionPlan | null>(null);
+  const [highlightedTripId, setHighlightedTripId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedDonationIds, setSelectedDonationIds] = useState<string[]>([]);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [modalPlan, setModalPlan] = useState<CollectionPlan | null>(null);
+
+  // QR Submissions & Unseen Badge Tracking
+  const [seenSubmissionIds, setSeenSubmissionIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('replate_ngo_seen_submissions');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const submittedQrDonations = useMemo(() => {
+    return donations.filter((d) => d.source === 'qr_form' && d.status === 'Submitted');
+  }, [donations]);
+
+  const unseenSubmissionsCount = useMemo(() => {
+    return submittedQrDonations.filter((d) => !seenSubmissionIds.has(d.id)).length;
+  }, [submittedQrDonations, seenSubmissionIds]);
+
+  // When on incoming tab, mark current submissions as seen to clear badge
+  useEffect(() => {
+    if (activeTab === 'incoming' && submittedQrDonations.length > 0) {
+      setSeenSubmissionIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        submittedQrDonations.forEach((d) => {
+          if (!next.has(d.id)) {
+            next.add(d.id);
+            changed = true;
+          }
+        });
+        if (changed) {
+          try {
+            localStorage.setItem('replate_ngo_seen_submissions', JSON.stringify(Array.from(next)));
+          } catch {}
+          return next;
+        }
+        return prev;
+      });
+    }
+  }, [activeTab, submittedQrDonations]);
+
+  // In-app notification when a new QR submission arrives
+  const prevSubmittedCountRef = useRef(submittedQrDonations.length);
+  useEffect(() => {
+    if (submittedQrDonations.length > prevSubmittedCountRef.current) {
+      const latest = submittedQrDonations[0];
+      if (latest && !seenSubmissionIds.has(latest.id)) {
+        toast.info(
+          `New surplus submitted: ${latest.providerName} (${latest.confirmedPortions || latest.portions} portions)`
+        );
+      }
+    }
+    prevSubmittedCountRef.current = submittedQrDonations.length;
+  }, [submittedQrDonations, seenSubmissionIds, toast]);
 
   // Confirmed pool strictly derived via selector
-  const pool = confirmedPool({ donations });
-  const poolIdsKey = pool.map((d) => d.id).sort().join(',');
+  const pool: FoodDonation[] = confirmedPool({ donations });
+
+  // Confirmed count badges per meal slot
+  const mealSlotCounts = useMemo(() => {
+    return {
+      morning: pool.filter((d) => (d.mealSlot || 'night') === 'morning').length,
+      afternoon: pool.filter((d) => (d.mealSlot || 'night') === 'afternoon').length,
+      night: pool.filter((d) => (d.mealSlot || 'night') === 'night').length,
+    };
+  }, [pool]);
+
+  // Current meal pool (never mix meals)
+  const mealPool = useMemo(() => {
+    return pool.filter((d) => (d.mealSlot || 'night') === activeMealSlot);
+  }, [pool, activeMealSlot]);
+
+  const mealPoolIdsKey = mealPool.map((d) => d.id).sort().join(',');
 
   // Overall NGO impact strictly derived via selector
   const metrics = ngoImpact({ donations });
@@ -55,19 +136,15 @@ export const NgoShell: React.FC = () => {
     Math.round((metrics.distributed / (ngo.nightlyPeopleFed || 80)) * 100)
   );
 
-  // Sync selectedDonationIds with pool
+  // Sync selectedDonationIds with mealPool
   useEffect(() => {
-    setSelectedDonationIds((prev) => {
-      const valid = prev.filter((id) => pool.some((d) => d.id === id));
-      if (valid.length === 0 && pool.length > 0) {
-        return pool.map((d) => d.id);
-      }
-      if (valid.length === prev.length && valid.every((id, idx) => id === prev[idx])) {
-        return prev;
-      }
-      return valid;
-    });
-  }, [poolIdsKey]);
+    setSelectedDonationIds(mealPool.map((d) => d.id));
+  }, [mealPoolIdsKey, activeMealSlot]);
+
+  const handleSelectMealSlot = (slot: MealSlot) => {
+    setActiveMealSlot(slot);
+    setCollectionPlan(null);
+  };
 
   const handleToggleDonation = (id: string) => {
     setSelectedDonationIds((prev) =>
@@ -76,7 +153,7 @@ export const NgoShell: React.FC = () => {
   };
 
   const handleSelectAll = () => {
-    setSelectedDonationIds(pool.map((d) => d.id));
+    setSelectedDonationIds(mealPool.map((d) => d.id));
   };
 
   const handleDeselectAll = () => {
@@ -84,16 +161,28 @@ export const NgoShell: React.FC = () => {
   };
 
   const handleGeneratePlan = async () => {
-    const selectedDonations = pool.filter((d) => selectedDonationIds.includes(d.id));
+    if (isPlanModalOpen) return;
+    const selectedDonations = mealPool.filter((d) => selectedDonationIds.includes(d.id));
     if (selectedDonations.length === 0) return;
     setIsGenerating(true);
     try {
-      const plan = await generateCollectionPlan(selectedDonations, providers, ngo, plannerConfig);
+      const plan = await generateCollectionPlan(
+        selectedDonations,
+        providers,
+        ngo,
+        plannerConfig,
+        undefined,
+        activeMealSlot
+      );
       setCollectionPlan(plan);
+      setModalPlan(plan);
+      setIsPlanModalOpen(true);
       if (plan.excludedDonations && plan.excludedDonations.length > 0) {
         recordExcludedDonations(plan.excludedDonations);
       }
-      toast.success(`Generated collection plan with ${plan.trips.length} trip(s)! Saved ~${plan.totalDistanceSavedKm} km`);
+      toast.success(
+        `Generated ${getMealSlotLabel(activeMealSlot)} collection plan with ${plan.trips.length} trip(s)! Saved ~${plan.totalDistanceSavedKm} km`
+      );
     } catch {
       toast.error('Failed to generate collection plan. Please try again.');
     } finally {
@@ -101,8 +190,39 @@ export const NgoShell: React.FC = () => {
     }
   };
 
-  const handleAcceptTrip = (trip: TripPlan) => {
-    acceptTripCollection(trip, ngo.vehicle.driverName);
+  const handleAcceptTrip = async (trip: TripPlan) => {
+    const acceptedDonationIds = new Set(trip.stops.map((s) => s.donationId));
+    const newCollectionId = acceptTripCollection(trip, ngo.vehicle.driverName);
+    setHighlightedTripId(newCollectionId);
+
+    // Remove accepted donations from plan pool and remaining proposals
+    const remainingSelected = selectedDonationIds.filter((id) => !acceptedDonationIds.has(id));
+    setSelectedDonationIds(remainingSelected);
+
+    // Leftover donations in the active meal pool
+    const leftoverDonations = mealPool.filter(
+      (d) => !acceptedDonationIds.has(d.id) && remainingSelected.includes(d.id)
+    );
+
+    // Re-run planning for leftover donations
+    if (leftoverDonations.length > 0) {
+      try {
+        const newPlan = await generateCollectionPlan(
+          leftoverDonations,
+          providers,
+          ngo,
+          plannerConfig,
+          undefined,
+          activeMealSlot
+        );
+        setCollectionPlan(newPlan);
+      } catch {
+        setCollectionPlan(null);
+      }
+    } else {
+      setCollectionPlan(null);
+    }
+
     setActiveTab('pickups');
   };
 
@@ -112,6 +232,12 @@ export const NgoShell: React.FC = () => {
       label: 'Plan',
       icon: Route,
       badge: pool.length > 0 ? `${pool.length} waiting` : undefined,
+    },
+    {
+      id: 'incoming' as const,
+      label: 'Incoming',
+      icon: Inbox,
+      badge: unseenSubmissionsCount > 0 ? `${unseenSubmissionsCount} new` : undefined,
     },
     {
       id: 'pickups' as const,
@@ -144,7 +270,7 @@ export const NgoShell: React.FC = () => {
             <h2 className="text-sm font-bold text-slate-900 truncate">{ngo.name}</h2>
             <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5 truncate">
               <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
-              <span>{ngo.distanceKmFromCollege} km to campus</span>
+              <span>{ngo.serviceRadiusKm ?? 5.0} km service radius</span>
             </p>
           </div>
         </div>
@@ -174,6 +300,8 @@ export const NgoShell: React.FC = () => {
                     className={`text-[10px] px-2 py-0.5 rounded-full font-bold ml-2 ${
                       isActive
                         ? 'bg-white/20 text-white'
+                        : item.id === 'incoming'
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200 animate-pulse font-extrabold'
                         : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                     }`}
                   >
@@ -224,19 +352,73 @@ export const NgoShell: React.FC = () => {
         {/* TAB 1: PLAN */}
         {activeTab === 'plan' && (
           <div className="space-y-6">
+            {/* Meal Slot Selector with Badge Above Planner */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Meal Slot Planner</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Plan routes independently per meal. Breakfast, Lunch, and Dinner donations are never mixed in one trip.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/60" role="tablist">
+                {(
+                  [
+                    { id: 'morning', label: 'Breakfast', window: '06:00–10:00' },
+                    { id: 'afternoon', label: 'Lunch', window: '12:00–15:00' },
+                    { id: 'night', label: 'Dinner', window: '19:00–23:00' },
+                  ] as const
+                ).map((tab) => {
+                  const isSelected = activeMealSlot === tab.id;
+                  const count = mealSlotCounts[tab.id];
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      id={`ngo-meal-tab-${tab.id}`}
+                      onClick={() => handleSelectMealSlot(tab.id)}
+                      className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                        isSelected
+                          ? 'bg-white text-emerald-900 shadow-xs border border-slate-200/80 font-bold'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span
+                        id={`badge-confirmed-${tab.id}`}
+                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                          count > 0
+                            ? isSelected
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
               {/* Map View */}
               <div className="xl:col-span-7 bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
                 <div className="p-3.5 border-b border-slate-100 flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-900">Cluster Routing Map</span>
+                  <span className="font-bold text-slate-900">Provider Availability Map ({getMealSlotLabel(activeMealSlot)})</span>
                   <span className="text-slate-500 font-medium">Madurai Depot & Provider Network</span>
                 </div>
                 <div className="relative z-0 isolate h-[420px] sm:h-[460px] w-full">
                   <NgoMap
                     ngo={ngo}
                     providers={providers}
-                    confirmedDonations={pool.filter((d) => selectedDonationIds.includes(d.id))}
-                    trips={collectionPlan ? collectionPlan.trips : []}
+                    confirmedDonations={mealPool.filter((d) => selectedDonationIds.includes(d.id))}
+                    plan={collectionPlan}
+                    activeMealSlot={activeMealSlot}
                     isVisible={activeTab === 'plan'}
                   />
                 </div>
@@ -245,7 +427,7 @@ export const NgoShell: React.FC = () => {
               {/* Donor List */}
               <div className="xl:col-span-5">
                 <DonorSelectionList
-                  donations={pool}
+                  donations={mealPool}
                   selectedDonationIds={selectedDonationIds}
                   onToggleDonation={handleToggleDonation}
                   onSelectAll={handleSelectAll}
@@ -254,29 +436,39 @@ export const NgoShell: React.FC = () => {
                   onGeneratePlan={handleGeneratePlan}
                   isGenerating={isGenerating}
                   vanCapacity={plannerConfig.vanCapacityPortions}
+                  mealSlot={activeMealSlot}
                 />
               </div>
             </div>
 
             {/* Generated Collection Trips (Dispatchable, On Hold, Excluded Groups) */}
             {collectionPlan && (
-              <GeneratedPlanGroups
-                plan={collectionPlan}
-                collections={collections}
-                onAcceptTrip={handleAcceptTrip}
-              />
+              <div id="generated-plan-results">
+                <GeneratedPlanGroups
+                  plan={collectionPlan}
+                  collections={collections}
+                  onAcceptTrip={handleAcceptTrip}
+                />
+              </div>
             )}
           </div>
         )}
 
-        {/* TAB 2: PICKUPS */}
+        {/* TAB 2: INCOMING INBOX */}
+        {activeTab === 'incoming' && <IncomingInboxTab />}
+
+        {/* TAB 3: PICKUPS */}
         {activeTab === 'pickups' && (
           <PickupsTab
             collections={collections}
             donations={donations}
             providers={providers}
+            ngo={ngo}
             onUpdateStopProgress={updateStopProgress}
             onGoToPlanTab={() => setActiveTab('plan')}
+            highlightedTripId={highlightedTripId}
+            onUpdateTripDriver={updateTripDriver}
+            onUpdateVehiclePosition={updateVehiclePosition}
           />
         )}
 
@@ -295,6 +487,24 @@ export const NgoShell: React.FC = () => {
         {/* TAB 4: SETTINGS */}
         {activeTab === 'settings' && <NgoSettingsTab />}
       </main>
+
+      {/* Plan Generated Modal Popup */}
+      <PlanGeneratedModal
+        isOpen={isPlanModalOpen}
+        onClose={() => setIsPlanModalOpen(false)}
+        plan={modalPlan}
+        mealSlot={activeMealSlot}
+        onViewPlan={() => {
+          setIsPlanModalOpen(false);
+          setTimeout(() => {
+            const resultsEl = document.getElementById('generated-plan-results');
+            if (resultsEl) {
+              resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 100);
+        }}
+        onAcceptTrip={handleAcceptTrip}
+      />
     </div>
   );
 };

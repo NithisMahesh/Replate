@@ -1,12 +1,14 @@
 import React from 'react';
-import { FoodDonation } from '../../types/surplusLink';
+import { FoodDonation, MealSlot } from '../../types/surplusLink';
 import { CheckCircle2, Clock, Circle } from 'lucide-react';
+import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
 
 interface ProgressStripProps {
   tonightDonation: FoodDonation | null;
+  mealSlot?: MealSlot;
 }
 
-export const ProgressStrip: React.FC<ProgressStripProps> = ({ tonightDonation }) => {
+export const ProgressStrip: React.FC<ProgressStripProps> = ({ tonightDonation, mealSlot }) => {
   const status = tonightDonation?.status;
 
   // Step 1: Confirmed
@@ -57,7 +59,7 @@ export const ProgressStrip: React.FC<ProgressStripProps> = ({ tonightDonation })
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs transition-all duration-150">
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-        Tonight's Progress
+        {mealSlot ? `${getMealSlotLabel(mealSlot)} Progress` : "Today's Progress"}
       </div>
       <div className="grid grid-cols-3 gap-2 relative">
         {steps.map((step) => (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Provider, POSTransaction, FoodDonation } from '../../types/surplusLink';
-import { HistoricalDonationRecord } from '../../utils/posAndPredictionUtils';
+import { Provider, POSTransaction, FoodDonation, MealSlot } from '../../types/surplusLink';
+import { HistoricalDonationRecord, getMealSlotLabel } from '../../utils/posAndPredictionUtils';
 import { X, Sparkles, CreditCard, RotateCcw, ListFilter, CheckCircle2 } from 'lucide-react';
 import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
@@ -20,6 +20,7 @@ interface ProviderDemoDrawerProps {
   onApplyPrediction: (portions: number) => void;
   tonightDonation: FoodDonation | null;
   onResetData: () => void;
+  mealSlot?: MealSlot;
 }
 
 export const ProviderDemoDrawer: React.FC<ProviderDemoDrawerProps> = ({
@@ -37,6 +38,7 @@ export const ProviderDemoDrawer: React.FC<ProviderDemoDrawerProps> = ({
   onApplyPrediction,
   tonightDonation,
   onResetData,
+  mealSlot = 'night',
 }) => {
   const [showTransactions, setShowTransactions] = useState(false);
   const toast = useToast();
@@ -152,7 +154,7 @@ export const ProviderDemoDrawer: React.FC<ProviderDemoDrawerProps> = ({
             <span className="text-xs font-semibold text-slate-900">Rolling Surplus Prediction</span>
           </div>
           <div className="text-sm font-semibold text-amber-950 bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between">
-            <span>Likely surplus tonight: ~{predictedSurplus}</span>
+            <span>Likely {getMealSlotLabel(mealSlot).toLowerCase()} surplus: ~{predictedSurplus}</span>
             <span className="text-xs font-medium text-amber-800 bg-white/80 px-2 py-0.5 rounded-lg">
               7-day avg
             </span>
@@ -170,12 +172,12 @@ export const ProviderDemoDrawer: React.FC<ProviderDemoDrawerProps> = ({
           </Button>
         </div>
 
-        {/* 4. Tonight status info */}
+        {/* 4. Meal status info */}
         {tonightDonation && (
           <div className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl text-xs space-y-1">
             <div className="font-semibold text-emerald-900 flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-              <span>Tonight's donation ID: {tonightDonation.id}</span>
+              <span>{getMealSlotLabel(mealSlot)} donation ID: {tonightDonation.id}</span>
             </div>
             <p className="text-xs text-slate-600">
               Status: <strong>{tonightDonation.status}</strong> • OTP: <strong>{tonightDonation.verificationOtp}</strong>

@@ -46,7 +46,7 @@ export const TopBar: React.FC = () => {
               </div>
               <div>
                 <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 block leading-tight">
-                  NourishRoute
+                  Replate
                 </span>
                 <span className="text-[10px] text-slate-500 block leading-tight">
                   Madurai Cluster

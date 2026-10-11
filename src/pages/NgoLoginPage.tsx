@@ -352,7 +352,7 @@ export const NgoLoginPage: React.FC = () => {
 
       {/* Footer */}
       <footer className="py-4 text-center text-xs text-slate-400">
-        NourishRoute Food Redistribution • Madurai, Tamil Nadu
+        Replate Food Redistribution • Madurai, Tamil Nadu
       </footer>
     </div>
   );

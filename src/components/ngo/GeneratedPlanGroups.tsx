@@ -2,6 +2,7 @@ import React from 'react';
 import { CollectionPlan, TripPlan, ExcludedDonationRecord, Collection } from '../../types/surplusLink';
 import { CheckCircle2, Clock, AlertTriangle, ShieldAlert, Check, X } from 'lucide-react';
 import { Button } from '../shared/Button';
+import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
 
 interface GeneratedPlanGroupsProps {
   plan: CollectionPlan;
@@ -40,7 +41,9 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
 
           <div className="grid grid-cols-1 gap-4">
             {dispatchableTrips.map((trip) => {
-              const isAccepted = collections.some((c) => c.tripNumber === trip.tripNumber);
+              const isAccepted =
+                trip.stops.length > 0 &&
+                trip.stops.some((s) => collections.some((c) => c.donationIds.includes(s.donationId)));
               return (
                 <div
                   key={trip.tripNumber}
@@ -54,9 +57,16 @@ export const GeneratedPlanGroups: React.FC<GeneratedPlanGroupsProps> = ({
                           T{trip.tripNumber}
                         </span>
                         <div>
-                          <h4 className="text-base font-bold text-slate-900">
-                            Trip #{trip.tripNumber}
-                          </h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-base font-bold text-slate-900">
+                              Trip #{trip.tripNumber}
+                            </h4>
+                            {trip.mealSlot && (
+                              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                                {getMealSlotLabel(trip.mealSlot)}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-500 mt-0.5">
                             {trip.distanceKm} km • ~{trip.durationMins} mins • {trip.totalPortions} portions
                           </p>

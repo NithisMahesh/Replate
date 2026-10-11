@@ -7,6 +7,8 @@ import {
   NGO,
   InAppNotification,
   CollectionPlan,
+  MealSlot,
+  MealImpactSummary,
 } from './types/surplusLink';
 
 export interface SurplusLinkState {
@@ -36,6 +38,64 @@ export function confirmedPool(
   state: { donations: FoodDonation[] }
 ): FoodDonation[] {
   return state.donations.filter((d) => d.status === 'Confirmed');
+}
+
+/**
+ * Returns the confirmed pool of donations ready for collection planning, filtered by mealSlot.
+ */
+export function confirmedPoolByMeal(
+  state: { donations: FoodDonation[] },
+  mealSlot?: MealSlot
+): FoodDonation[] {
+  return state.donations.filter(
+    (d) => d.status === 'Confirmed' && (!mealSlot || (d.mealSlot || 'night') === mealSlot)
+  );
+}
+
+/**
+ * Returns active collections (Scheduled or In Progress), newest active trip first.
+ */
+export function activeCollections(state: { collections: Collection[] }): Collection[] {
+  return (state.collections || [])
+    .filter((c) => c.status === 'Scheduled' || c.status === 'In Progress')
+    .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
+}
+
+/**
+ * Returns queued collections waiting for the van, ordered by queue time.
+ */
+export function queuedCollections(state: { collections: Collection[] }): Collection[] {
+  return (state.collections || [])
+    .filter((c) => c.status === 'Queued')
+    .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+}
+
+/**
+ * Returns completed collections, latest completed first.
+ */
+export function completedCollections(state: { collections: Collection[] }): Collection[] {
+  return (state.collections || [])
+    .filter((c) => c.status === 'Completed' || c.status === 'Partially Failed')
+    .sort((a, b) => {
+      const timeA = new Date(a.completedAt || a.scheduledAt).getTime();
+      const timeB = new Date(b.completedAt || b.scheduledAt).getTime();
+      return timeB - timeA;
+    });
+}
+
+/**
+ * Returns all collections grouped into active, queued, and completed lists.
+ */
+export function groupedCollections(state: { collections: Collection[] }): {
+  active: Collection[];
+  queued: Collection[];
+  completed: Collection[];
+} {
+  return {
+    active: activeCollections(state),
+    queued: queuedCollections(state),
+    completed: completedCollections(state),
+  };
 }
 
 export interface CollectionTotals {
@@ -122,6 +182,14 @@ export function collectionTotals(
   };
 }
 
+function createEmptyMealImpact(): Record<MealSlot, MealImpactSummary> {
+  return {
+    morning: { donated: 0, collected: 0, received: 0, distributed: 0, successfulCollectionsCount: 0 },
+    afternoon: { donated: 0, collected: 0, received: 0, distributed: 0, successfulCollectionsCount: 0 },
+    night: { donated: 0, collected: 0, received: 0, distributed: 0, successfulCollectionsCount: 0 },
+  };
+}
+
 /**
  * Computes the 4-stage pipeline impact for a single provider.
  */
@@ -135,19 +203,26 @@ export function providerImpact(
   let received = 0;
   let distributed = 0;
   let successfulCollectionsCount = 0;
+  const byMeal = createEmptyMealImpact();
 
   for (const d of providerDonations) {
+    const slot: MealSlot = d.mealSlot || 'night';
     if (d.status !== 'Draft' && d.status !== 'Cancelled') {
-      donated += d.confirmedPortions ?? d.portions ?? 0;
+      const p = d.confirmedPortions ?? d.portions ?? 0;
+      donated += p;
+      byMeal[slot].donated += p;
     }
     if (d.collectedPortions && d.collectedPortions > 0) {
       collected += d.collectedPortions;
+      byMeal[slot].collected += d.collectedPortions;
     }
     if (d.receivedPortions && d.receivedPortions > 0) {
       received += d.receivedPortions;
+      byMeal[slot].received += d.receivedPortions;
     }
     if (d.distributedPortions && d.distributedPortions > 0) {
       distributed += d.distributedPortions;
+      byMeal[slot].distributed += d.distributedPortions;
     }
     if (
       d.status === 'Collected' ||
@@ -155,6 +230,7 @@ export function providerImpact(
       d.status === 'Distributed'
     ) {
       successfulCollectionsCount++;
+      byMeal[slot].successfulCollectionsCount++;
     }
   }
 
@@ -164,6 +240,7 @@ export function providerImpact(
     received,
     distributed,
     successfulCollectionsCount,
+    byMeal,
   };
 }
 
@@ -178,19 +255,26 @@ export function ngoImpact(
   let received = 0;
   let distributed = 0;
   let successfulCollectionsCount = 0;
+  const byMeal = createEmptyMealImpact();
 
   for (const d of state.donations) {
+    const slot: MealSlot = d.mealSlot || 'night';
     if (d.status !== 'Draft' && d.status !== 'Cancelled') {
-      donated += d.confirmedPortions ?? d.portions ?? 0;
+      const p = d.confirmedPortions ?? d.portions ?? 0;
+      donated += p;
+      byMeal[slot].donated += p;
     }
     if (d.collectedPortions && d.collectedPortions > 0) {
       collected += d.collectedPortions;
+      byMeal[slot].collected += d.collectedPortions;
     }
     if (d.receivedPortions && d.receivedPortions > 0) {
       received += d.receivedPortions;
+      byMeal[slot].received += d.receivedPortions;
     }
     if (d.distributedPortions && d.distributedPortions > 0) {
       distributed += d.distributedPortions;
+      byMeal[slot].distributed += d.distributedPortions;
     }
     if (
       d.status === 'Collected' ||
@@ -198,6 +282,7 @@ export function ngoImpact(
       d.status === 'Distributed'
     ) {
       successfulCollectionsCount++;
+      byMeal[slot].successfulCollectionsCount++;
     }
   }
 
@@ -207,6 +292,7 @@ export function ngoImpact(
     received,
     distributed,
     successfulCollectionsCount,
+    byMeal,
   };
 }
 
@@ -241,24 +327,26 @@ export function derivedCollectionStops(
   const providerMap = new Map(providers.map((p) => [p.id, p]));
 
   return collection.donationIds.map((donId, index) => {
-    const donation = donationMap.get(donId) || {
+    const fallbackDonation: FoodDonation = {
       id: donId,
       providerId: 'unknown',
       providerName: 'Unknown Provider',
-      providerType: 'restaurant' as const,
+      providerType: 'restaurant',
       foodItem: 'Surplus Food',
-      category: 'cooked_meal' as const,
+      category: 'cooked_meal',
+      mealSlot: 'night',
       confirmedPortions: 0,
       portions: 0,
-      storageType: 'room_temp' as const,
+      storageType: 'room_temp',
       preparedTime: '20:00',
       collectionDeadline: '23:00',
       deadlineTimestamp: Date.now() + 60 * 60 * 1000,
-      dietary: 'veg' as const,
+      dietary: 'veg',
       verificationOtp: '0000',
-      status: 'Scheduled' as const,
+      status: 'Scheduled',
       createdAt: new Date().toISOString(),
     };
+    const donation = donationMap.get(donId) || fallbackDonation;
 
     const provider = providerMap.get(donation.providerId) || {
       id: donation.providerId,
@@ -266,7 +354,7 @@ export function derivedCollectionStops(
       type: donation.providerType,
       lat: 9.9252,
       lng: 78.1198,
-      distanceKmFromCollege: 0.5,
+      distanceKmFromNgo: 0.5,
       closingTime: '22:00',
       address: 'Madurai',
       phone: '',

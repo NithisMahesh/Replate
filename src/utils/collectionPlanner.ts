@@ -6,6 +6,7 @@ import {
   TripStop,
   CollectionPlan,
   ExcludedDonationRecord,
+  MealSlot,
 } from '../types/surplusLink';
 import {
   PlannerConfig,
@@ -62,6 +63,40 @@ export function estimateDriveMinutes(
   const roadDist = Number((straightDist * 1.35).toFixed(2)); // 1.35 urban circuity factor
   const durationMins = Math.max(1, Math.round((roadDist / speedKmh) * 60));
   return { distanceKm: roadDist, durationMins };
+}
+
+/**
+ * Calculates road distance using Haversine with 1.35 urban circuity factor
+ */
+export function haversineRoadDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const straight = haversineDistanceKm(lat1, lon1, lat2, lon2);
+  return Number((straight * 1.35).toFixed(2));
+}
+
+/**
+ * Computes road distance from NGO to provider using OSRM with Haversine fallback
+ */
+export async function computeProviderDistanceKmFromNgo(
+  ngo: { lat: number; lng: number },
+  provider: { lat: number; lng: number }
+): Promise<number> {
+  try {
+    const route = await fetchOsrmRoute([
+      { lat: ngo.lat, lng: ngo.lng },
+      { lat: provider.lat, lng: provider.lng },
+    ]);
+    if (route.success && route.distanceKm > 0) {
+      return route.distanceKm;
+    }
+  } catch {
+    // fallback
+  }
+  return haversineRoadDistanceKm(ngo.lat, ngo.lng, provider.lat, provider.lng);
 }
 
 /**
@@ -267,6 +302,7 @@ async function evaluateTripTiming(
       verificationOtp: item.donation.verificationOtp,
       estimatedArrivalMinutesFromStart: elapsedMinutes,
       isDeadlineMet: isSafe,
+      mealSlot: item.donation.mealSlot || 'night',
       arrivalAtNgoTimestamp: arrivalAtNgoMs,
       arrivalAtNgoFormatted: formatTime12h(arrivalAtNgoMs),
       deadlineFormatted: formatTime12h(deadlineMs),
@@ -307,7 +343,8 @@ export async function generateCollectionPlan(
   providers: Provider[],
   ngo: NGO,
   customConfig?: Partial<PlannerConfig>,
-  customStartTime?: number
+  customStartTime?: number,
+  targetMealSlot?: MealSlot
 ): Promise<CollectionPlan> {
   const config: PlannerConfig = {
     ...getSavedPlannerConfig(),
@@ -318,13 +355,40 @@ export async function generateCollectionPlan(
   const startTime = customStartTime ?? Date.now();
   const excludedDonations: ExcludedDonationRecord[] = [];
 
-  // STEP 1 & 2: Start with Confirmed donations. Remove DEADLINE_PASSED and MISSING_SAFETY_INFO
+  const effectiveMealSlot: MealSlot =
+    targetMealSlot || (confirmedDonations[0]?.mealSlot || 'night');
+
+  // STEP 1 & 2: Start with Confirmed donations matching the target mealSlot.
+  // Donations from different meals are never mixed in one trip.
   const eligibleCandidates: CandidateItem[] = [];
 
   for (const d of confirmedDonations) {
     if (d.status !== 'Confirmed') continue;
-    const provider = providerMap.get(d.providerId);
-    if (!provider) continue;
+    const dMealSlot: MealSlot = d.mealSlot || 'night';
+    if (dMealSlot !== effectiveMealSlot) continue;
+
+    let provider = providerMap.get(d.providerId);
+    if (!provider) {
+      if (d.lat !== undefined && d.lng !== undefined) {
+        const pLat = d.lat;
+        const pLng = d.lng;
+        const distKm = haversineRoadDistanceKm(ngo.lat, ngo.lng, pLat, pLng);
+        provider = {
+          id: d.providerId || `provider-${d.id}`,
+          name: d.providerName || 'Local Donor',
+          type: d.providerType || 'restaurant',
+          lat: pLat,
+          lng: pLng,
+          distanceKmFromNgo: distKm,
+          closingTime: d.collectionDeadline || '23:00',
+          address: d.locationLandmark || `${pLat.toFixed(4)}, ${pLng.toFixed(4)}`,
+          phone: d.contactPhone || '9876543210',
+          contactPerson: d.providerName || 'Store Manager',
+        };
+      } else {
+        continue;
+      }
+    }
 
     // Check 2a: MISSING_SAFETY_INFO
     if (!d.category || !d.storageType) {
@@ -335,6 +399,7 @@ export async function generateCollectionPlan(
         reason: 'MISSING_SAFETY_INFO',
         reasonLabel: 'Excluded because required food-safety details are missing.',
         detail: 'Missing food category or storage condition information.',
+        mealSlot: dMealSlot,
         timestamp: new Date().toISOString(),
       });
       continue;
@@ -350,6 +415,24 @@ export async function generateCollectionPlan(
         reason: 'DEADLINE_PASSED',
         reasonLabel: 'Excluded because its safe window has already ended.',
         detail: `Safe window expired at ${expiredFormatted}.`,
+        mealSlot: dMealSlot,
+        timestamp: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    // Check 2c: OUT_OF_RADIUS (provider located beyond NGO service radius)
+    const distFromNgo = provider.distanceKmFromNgo || haversineRoadDistanceKm(ngo.lat, ngo.lng, provider.lat, provider.lng);
+    const radiusLimit = ngo.serviceRadiusKm ?? 5.0;
+    if (distFromNgo > radiusLimit) {
+      excludedDonations.push({
+        donationId: d.id,
+        providerName: provider.name,
+        portions: d.confirmedPortions ?? d.portions ?? 0,
+        reason: 'OUT_OF_RADIUS',
+        reasonLabel: "Excluded because it is outside this NGO's service radius.",
+        detail: `Provider is located ${distFromNgo} km away, exceeding service radius of ${radiusLimit} km.`,
+        mealSlot: dMealSlot,
         timestamp: new Date().toISOString(),
       });
       continue;
@@ -494,6 +577,7 @@ export async function generateCollectionPlan(
 
     finalTrips.push({
       tripNumber: idx + 1,
+      mealSlot: effectiveMealSlot,
       stops: bundle.evalResult.tripStops,
       totalPortions,
       capacityMax: config.vanCapacityPortions,

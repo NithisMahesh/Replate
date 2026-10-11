@@ -117,7 +117,7 @@ export const ProviderLoginPage: React.FC = () => {
             </h1>
             <p className="text-xs font-medium text-amber-950/80 leading-relaxed">
               {isRegistering
-                ? 'Join 15 hyper-local campus kitchens redirecting surplus to night feeding operations.'
+                ? 'Join local food kitchens redirecting surplus to night feeding operations.'
                 : 'Sign in to confirm tonight’s surplus, track driver pickup ETAs, and audit community impact.'}
             </p>
           </div>
@@ -261,7 +261,7 @@ export const ProviderLoginPage: React.FC = () => {
 
                 {/* Address */}
                 <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">Address (within 1.5 km of campus) *</label>
+                  <label className="block font-bold text-slate-700">Address (Madurai service area) *</label>
                   <div className="relative">
                     <input
                       type="text"
@@ -361,7 +361,7 @@ export const ProviderLoginPage: React.FC = () => {
 
       {/* Footer */}
       <footer className="py-4 text-center text-xs text-slate-400">
-        NourishRoute Food Redistribution • Madurai, Tamil Nadu
+        Replate Food Redistribution • Madurai, Tamil Nadu
       </footer>
     </div>
   );
