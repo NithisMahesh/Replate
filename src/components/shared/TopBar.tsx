@@ -1,7 +1,20 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSurplusLink } from '../../context/SurplusLinkContext';
-import { Bell, X, CheckCircle2, AlertTriangle, Info, LogOut, SlidersHorizontal, UtensilsCrossed, Store, HeartHandshake } from 'lucide-react';
+import { InAppNotification } from '../../types/surplusLink';
+import {
+  Bell,
+  X,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+  LogOut,
+  SlidersHorizontal,
+  UtensilsCrossed,
+  Store,
+  HeartHandshake,
+  CheckCheck,
+} from 'lucide-react';
 import { DemoDrawer } from './DemoDrawer';
 
 export const TopBar: React.FC = () => {
@@ -11,6 +24,10 @@ export const TopBar: React.FC = () => {
     logout,
     notifications,
     dismissNotification,
+    isLiveConnected,
+    setHighlightedDonationId,
+    markNotificationRead,
+    markAllNotificationsRead,
   } = useSurplusLink();
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -21,7 +38,10 @@ export const TopBar: React.FC = () => {
     if (!session) return false;
     if (n.targetRole === 'all') return true;
     if (session.role === 'provider') {
-      return n.targetRole === 'provider' && (!n.targetProviderId || n.targetProviderId === session.entityId);
+      return (
+        n.targetRole === 'provider' &&
+        (!n.targetProviderId || n.targetProviderId === session.entityId)
+      );
     }
     if (session.role === 'ngo') {
       return n.targetRole === 'ngo';
@@ -29,9 +49,19 @@ export const TopBar: React.FC = () => {
     return false;
   });
 
+  const unreadCount = roleNotifications.filter((n) => !n.read).length;
+
   const handleLogout = () => {
     logout();
     navigate('/', { replace: true });
+  };
+
+  const handleClickNotif = (notif: InAppNotification) => {
+    markNotificationRead(notif.id);
+    if (notif.relatedDonationId) {
+      setHighlightedDonationId(notif.relatedDonationId);
+    }
+    setIsNotifOpen(false);
   };
 
   return (
@@ -39,18 +69,29 @@ export const TopBar: React.FC = () => {
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-xs border-b border-slate-200 shadow-2xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-3">
-            {/* Logo */}
-            <div className="flex items-center gap-2.5 shrink-0">
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-bold shadow-xs shadow-emerald-600/30">
-                <UtensilsCrossed className="h-4 w-4 sm:h-5 sm:w-5" />
+            {/* Logo & Live Sync Indicator */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-bold shadow-xs shadow-emerald-600/30">
+                  <UtensilsCrossed className="h-4 w-4 sm:h-5 sm:w-5" />
+                </div>
+                <div>
+                  <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 block leading-tight">
+                    Replate
+                  </span>
+                  <span className="text-[10px] text-slate-500 block leading-tight">
+                    Madurai Cluster
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 block leading-tight">
-                  Replate
-                </span>
-                <span className="text-[10px] text-slate-500 block leading-tight">
-                  Madurai Cluster
-                </span>
+
+              {/* Small "Live" multi-tab sync indicator */}
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full text-[11px] font-bold shadow-2xs"
+                title="Real-time multi-tab cross-sync active via BroadcastChannel"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Live</span>
               </div>
             </div>
 
@@ -93,9 +134,9 @@ export const TopBar: React.FC = () => {
                       aria-label="View notifications"
                     >
                       <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
-                      {roleNotifications.length > 0 && (
-                        <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-slate-950 shadow-xs">
-                          {roleNotifications.length > 9 ? '9+' : roleNotifications.length}
+                      {unreadCount > 0 && (
+                        <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-slate-950 shadow-xs">
+                          {unreadCount > 9 ? '9+' : unreadCount}
                         </span>
                       )}
                     </button>
@@ -107,17 +148,29 @@ export const TopBar: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <Bell className="h-4 w-4 text-emerald-600" />
                             <span className="text-xs font-semibold text-slate-900">
-                              Your Alerts ({roleNotifications.length})
+                              Your Alerts ({unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'})
                             </span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsNotifOpen(false)}
-                            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-                            aria-label="Close"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {unreadCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => markAllNotificationsRead(session.role, session.entityId)}
+                                className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline flex items-center gap-1 cursor-pointer"
+                              >
+                                <CheckCheck className="w-3.5 h-3.5" />
+                                <span>Mark read</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setIsNotifOpen(false)}
+                              className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                              aria-label="Close"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
                         <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
                           {roleNotifications.length === 0 ? (
@@ -128,10 +181,16 @@ export const TopBar: React.FC = () => {
                             roleNotifications.map((notif) => (
                               <div
                                 key={notif.id}
-                                className="p-3 text-xs hover:bg-slate-50 transition-colors flex items-start justify-between gap-2"
+                                onClick={() => handleClickNotif(notif)}
+                                className={`p-3 text-xs transition-colors flex items-start justify-between gap-2 cursor-pointer ${
+                                  !notif.read ? 'bg-emerald-50/30 hover:bg-emerald-50/60' : 'hover:bg-slate-50'
+                                }`}
                               >
-                                <div className="space-y-1 min-w-0">
+                                <div className="space-y-1 min-w-0 flex-1">
                                   <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                                    {!notif.read && (
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                                    )}
                                     {notif.type === 'success' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />}
                                     {notif.type === 'warning' && <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
                                     {notif.type === 'error' && <X className="h-3.5 w-3.5 text-rose-600 shrink-0" />}
@@ -139,11 +198,21 @@ export const TopBar: React.FC = () => {
                                     <span className="truncate">{notif.title}</span>
                                   </div>
                                   <p className="text-xs text-slate-600 leading-relaxed">{notif.message}</p>
-                                  <span className="text-[10px] text-slate-400 block">{notif.timestamp}</span>
+                                  <div className="flex items-center gap-2 pt-0.5">
+                                    <span className="text-[10px] text-slate-400 font-mono">{notif.timestamp}</span>
+                                    {notif.relatedDonationId && (
+                                      <span className="text-[10px] font-semibold text-emerald-700 hover:underline">
+                                        Tap to view donation →
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => dismissNotification(notif.id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    dismissNotification(notif.id);
+                                  }}
                                   className="text-slate-400 hover:text-slate-600 p-1 shrink-0 cursor-pointer"
                                   title="Dismiss"
                                 >

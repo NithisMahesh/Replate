@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { FoodDonation, MealSlot } from '../../types/surplusLink';
-import { ChevronDown, ChevronUp, Clock, CheckCircle2, Truck, ShieldCheck, RotateCcw, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock, CheckCircle2, Truck, ShieldCheck, RotateCcw, Sparkles, PauseCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
 import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
+import { useSurplusLink } from '../../context/SurplusLinkContext';
+import { DonationTimeline } from '../shared/DonationTimeline';
 
 export interface SoldQuantityMode {
   isBillingConnected: boolean;
@@ -57,6 +59,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
   const [soldInput, setSoldInput] = useState(String(calculation.sold));
   const toast = useToast();
   const mealLabel = getMealSlotLabel(mealSlot);
+  const { eventLog, highlightedDonationId } = useSurplusLink();
 
   React.useEffect(() => {
     setSoldInput(String(calculation.sold));
@@ -123,20 +126,46 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
 
   if (tonightDonation) {
     const isScheduled = tonightDonation.status === 'Scheduled';
+    const isHighlighted = highlightedDonationId === tonightDonation.id;
+    const isSubThreshold = tonightDonation.status === 'Confirmed' && tonightDonation.confirmedPortions < 15;
+    const activeExclusion = tonightDonation.exclusionRecord || exclusionBanner;
+
     return (
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-5 transition-all duration-150">
-        {/* Red banner if excluded by route planner */}
-        {exclusionBanner && (
+      <div
+        id={`donation-card-${tonightDonation.id}`}
+        className={`bg-white rounded-2xl border p-5 sm:p-6 shadow-xs space-y-5 transition-all duration-200 ${
+          isHighlighted
+            ? 'border-emerald-500 ring-2 ring-emerald-500/30 shadow-md bg-emerald-50/10'
+            : 'border-slate-200/80'
+        }`}
+      >
+        {/* Reusable Shared Status Timeline */}
+        <DonationTimeline donation={tonightDonation} events={eventLog} />
+
+        {/* On-Hold Reason (Plain Words) */}
+        {isSubThreshold && !activeExclusion && (
+          <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl text-xs text-amber-950 space-y-1">
+            <div className="font-bold flex items-center gap-1.5 text-amber-900">
+              <PauseCircle className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>Surplus Batch on Temporary Hold</span>
+            </div>
+            <p className="leading-relaxed text-amber-800">
+              Your batch of <strong>{tonightDonation.confirmedPortions} portions</strong> is under the 15-portion solo vehicle dispatch threshold. The route optimizer will automatically dispatch a van once paired with nearby stops.
+            </p>
+          </div>
+        )}
+        {/* Plain-Language Exclusion & Hold Notice */}
+        {activeExclusion && (
           <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl text-xs text-rose-950 space-y-1.5 shadow-xs animate-in fade-in">
             <div className="font-bold flex items-center gap-2 text-rose-800 text-sm">
               <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
-              <span>{exclusionBanner.reasonLabel || 'Excluded from Route'}</span>
+              <span>Surplus on Hold: {activeExclusion.reasonLabel || 'Excluded from Route'}</span>
             </div>
             <p className="text-xs text-rose-900 leading-relaxed font-semibold">
-              {exclusionBanner.detail}
+              {activeExclusion.detail}
             </p>
             <p className="text-[11px] text-rose-700">
-              The algorithm excluded this donation to protect food safety. You can adjust the deadline or change portions.
+              The algorithm excluded this donation to protect food safety. You can adjust the pickup deadline or update portions to qualify for the next dispatch.
             </p>
           </div>
         )}

@@ -227,6 +227,21 @@ type Action =
     }
   | {
       type: 'RESET_DEMO_DATA';
+    }
+  | {
+      type: 'SYNC_REMOTE_STATE';
+      payload: {
+        newState: SurplusLinkState;
+        version: number;
+      };
+    }
+  | {
+      type: 'MARK_NOTIFICATION_READ';
+      payload: { notificationId: string };
+    }
+  | {
+      type: 'MARK_ALL_NOTIFICATIONS_READ';
+      payload: { role: string; entityId?: string };
     };
 
 export const initialDefaultState: SurplusLinkState = {
@@ -421,38 +436,52 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         verification: action.payload.verification || (isPublic ? 'unverified' : 'verified'),
         createdAt: new Date().toISOString(),
       };
-      const notif: InAppNotification = {
-        id: `notif-${Date.now()}`,
-        targetRole: 'all',
-        targetProviderId: action.payload.providerId,
-        title: isPublic
-          ? `Public Surplus Submitted: ${action.payload.providerName}`
-          : `New Surplus Available: ${action.payload.providerName}`,
-        message: isPublic
-          ? `${confirmed} portions of "${action.payload.foodItem}" submitted without login. Pending review.`
-          : `${confirmed} portions of "${action.payload.foodItem}" logged. Ready for batch routing.`,
+      const ngoNotif: InAppNotification = {
+        id: `notif-${Date.now()}-ngo-new`,
+        targetRole: 'ngo',
+        title: isPublic ? `New Public Surplus: ${action.payload.providerName}` : `New Surplus Confirmed: ${action.payload.providerName}`,
+        message: `${action.payload.providerName} confirmed ${confirmed} portions of "${action.payload.foodItem}".`,
         type: 'success',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        relatedDonationId: newDonation.id,
       };
+      const provNotif: InAppNotification = {
+        id: `notif-${Date.now()}-prov-new`,
+        targetRole: 'provider',
+        targetProviderId: action.payload.providerId,
+        title: `${action.payload.foodItem} Confirmed`,
+        message: `Your ${confirmed} portions are confirmed and published to the NGO planner pool.`,
+        type: 'success',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        relatedDonationId: newDonation.id,
+      };
+      const initialEvents: EventLogEntry[] = [];
+      if (isPublic) {
+        initialEvents.push({
+          id: `evt-${Date.now()}-sub-${newDonation.id}`,
+          time: newDonation.createdAt,
+          type: 'Submitted' as const,
+          donationId: newDonation.id,
+          actor: newDonation.providerName || 'Public Donor',
+          message: `Submitted ${confirmed} portions of "${newDonation.foodItem}" via public QR form.`,
+        });
+      }
+      if (status === 'Confirmed') {
+        initialEvents.push({
+          id: `evt-${Date.now()}-confirmed-${newDonation.id}`,
+          time: newDonation.createdAt,
+          type: 'Confirmed' as const,
+          donationId: newDonation.id,
+          actor: newDonation.providerName || 'Provider Kitchen',
+          message: `Confirmed ${newDonation.confirmedPortions} portions of "${newDonation.foodItem}". Added to donation pool.`,
+        });
+      }
       return {
         ...state,
         donations: [newDonation, ...state.donations],
-        notifications: [notif, ...state.notifications],
-        eventLog: [
-          ...(status === 'Confirmed'
-            ? [
-                {
-                  id: `evt-${Date.now()}-confirmed-${newDonation.id}`,
-                  time: newDonation.createdAt,
-                  type: 'Confirmed' as const,
-                  donationId: newDonation.id,
-                  actor: newDonation.providerName || 'Provider Kitchen',
-                  message: `Confirmed ${newDonation.confirmedPortions} portions of "${newDonation.foodItem}". Added to donation pool.`,
-                },
-              ]
-            : []),
-          ...(state.eventLog || []),
-        ],
+        notifications: [provNotif, ngoNotif, ...state.notifications],
+        eventLog: [...initialEvents, ...(state.eventLog || [])],
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -494,15 +523,74 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
           d.id === action.payload.donationId ? { ...d, status: action.payload.status } : d
         ),
         eventLog: [...newStatusEvents, ...(state.eventLog || [])],
+        _version: (state._version || 0) + 1,
       };
     }
 
     case 'UPDATE_DONATION': {
+      const targetDonation = state.donations.find((d) => d.id === action.payload.donationId);
+      const updates = action.payload.updates;
+      const notifs: InAppNotification[] = [];
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      if (targetDonation && updates.confirmedPortions !== undefined && updates.confirmedPortions !== targetDonation.confirmedPortions) {
+        notifs.push({
+          id: `notif-${Date.now()}-edit-ngo`,
+          targetRole: 'ngo',
+          title: `Surplus Updated: ${targetDonation.providerName}`,
+          message: `${targetDonation.providerName} updated "${targetDonation.foodItem}" from ${targetDonation.confirmedPortions} to ${updates.confirmedPortions} portions.`,
+          type: 'info',
+          timestamp: timeStr,
+          relatedDonationId: targetDonation.id,
+          read: false,
+        });
+      }
+      if (targetDonation && updates.status === 'Cancelled' && targetDonation.status !== 'Cancelled') {
+        notifs.push({
+          id: `notif-${Date.now()}-cancel-ngo`,
+          targetRole: 'ngo',
+          title: `Surplus Cancelled: ${targetDonation.providerName}`,
+          message: `${targetDonation.providerName} cancelled ${targetDonation.confirmedPortions} portions of "${targetDonation.foodItem}".`,
+          type: 'warning',
+          timestamp: timeStr,
+          relatedDonationId: targetDonation.id,
+          read: false,
+        });
+      }
+      if (targetDonation && updates.status === 'Confirmed' && targetDonation.status !== 'Confirmed') {
+        notifs.push({
+          id: `notif-${Date.now()}-accept-prov`,
+          targetRole: 'provider',
+          targetProviderId: targetDonation.providerId,
+          title: 'Donation Accepted by NGO!',
+          message: `${state.ngo.name || 'NGO'} accepted your ${targetDonation.confirmedPortions ?? targetDonation.portions} portions of "${targetDonation.foodItem}". Added to collection routing pool.`,
+          type: 'success',
+          timestamp: timeStr,
+          relatedDonationId: targetDonation.id,
+          read: false,
+        });
+      }
+      if (targetDonation && updates.status === 'Rejected' && targetDonation.status !== 'Rejected') {
+        notifs.push({
+          id: `notif-${Date.now()}-reject-prov`,
+          targetRole: 'provider',
+          targetProviderId: targetDonation.providerId,
+          title: 'Donation Declined',
+          message: `Your donation of "${targetDonation.foodItem}" could not be collected: ${updates.rejectionReason || 'Outside collection radius'}.`,
+          type: 'error',
+          timestamp: timeStr,
+          relatedDonationId: targetDonation.id,
+          read: false,
+        });
+      }
+
       return {
         ...state,
         donations: state.donations.map((d) =>
           d.id === action.payload.donationId ? { ...d, ...action.payload.updates } : d
         ),
+        notifications: [...notifs, ...state.notifications],
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -518,6 +606,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
             routeProgress: routeProgress !== undefined ? routeProgress : c.routeProgress,
           };
         }),
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -542,6 +631,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
             driverName: driverName.trim() || d.driverName,
           };
         }),
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -592,16 +682,19 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
           estimatedArrivalTimeFormatted: arrivalTimeFormatted,
         };
 
+        const mealSlotLabel = trip.mealSlot ? `${MEAL_SLOT_LABELS[trip.mealSlot]} ` : '';
         if (hasActiveTrip) {
           newNotifications.push({
             id: `notif-${Date.now()}-${s.providerId}`,
             targetRole: 'provider',
             targetProviderId: s.providerId,
             title: 'Pickup Queued: Waiting for Van',
-            message: `Your donation "${s.foodItem}" (${s.portions} portions) is queued for collection. Scheduled once the active van route completes.`,
+            message: `Your ${s.portions} ${mealSlotLabel}portions are queued. Scheduled once the active van route completes.`,
             type: 'info',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             relatedCollectionId: collectionId,
+            relatedDonationId: s.donationId,
+            read: false,
           });
         } else {
           newNotifications.push({
@@ -609,10 +702,12 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
             targetRole: 'provider',
             targetProviderId: s.providerId,
             title: 'Van Pickup Scheduled!',
-            message: `${driver.name} is scheduled to pick up "${s.foodItem}" (${s.portions} portions) at approx ${arrivalTimeFormatted}.`,
+            message: `Your ${s.portions} ${mealSlotLabel}portions are scheduled. Pickup around ${arrivalTimeFormatted} by ${driver.name}.`,
             type: 'info',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             relatedCollectionId: collectionId,
+            relatedDonationId: s.donationId,
+            read: false,
           });
         }
         newEvents.push({
@@ -730,6 +825,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         collectionPlan: nextCollectionPlan,
         notifications: [...newNotifications, ...state.notifications],
         eventLog: [...newEvents, ...(state.eventLog || [])],
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -887,6 +983,36 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
       const foodItemName = targetDonation?.foodItem || 'Surplus Item';
       const providerId = targetDonation?.providerId;
 
+      if (newStatus === 'Collected') {
+        newNotifications.push({
+          id: `notif-${Date.now()}-collected-prov`,
+          targetRole: 'provider',
+          targetProviderId: providerId,
+          title: 'Surplus Collected!',
+          message: `Your ${actual} portions of "${foodItemName}" have been collected by ${targetCollection.driver.name || 'the driver'}. Intake en route to NGO hub.`,
+          type: 'success',
+          timestamp: timeStr,
+          relatedCollectionId: collectionId,
+          relatedDonationId: donationId,
+          read: false,
+        });
+      }
+
+      if (newStatus === 'En route') {
+        newNotifications.push({
+          id: `notif-${Date.now()}-enroute-prov`,
+          targetRole: 'provider',
+          targetProviderId: providerId,
+          title: 'Driver En Route',
+          message: `${targetCollection.driver.name || 'Driver'} is en route to collect your ${confirmedQty} portions of "${foodItemName}".`,
+          type: 'info',
+          timestamp: timeStr,
+          relatedCollectionId: collectionId,
+          relatedDonationId: donationId,
+          read: false,
+        });
+      }
+
       if (newStatus === 'Collected' && discrepancy !== 0) {
         newNotifications.push({
           id: `notif-${Date.now()}-discrepancy`,
@@ -897,6 +1023,8 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
           type: 'warning',
           timestamp: timeStr,
           relatedCollectionId: collectionId,
+          relatedDonationId: donationId,
+          read: false,
         });
       }
 
@@ -911,6 +1039,8 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
             type: 'error',
             timestamp: timeStr,
             relatedCollectionId: collectionId,
+            relatedDonationId: donationId,
+            read: false,
           },
           {
             id: `notif-${Date.now()}-failed-ngo`,
@@ -920,6 +1050,8 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
             type: 'warning',
             timestamp: timeStr,
             relatedCollectionId: collectionId,
+            relatedDonationId: donationId,
+            read: false,
           }
         );
       }
@@ -953,6 +1085,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         donations: updatedDonations,
         notifications: [...autoStartNotifications, ...newNotifications, ...state.notifications],
         eventLog: [...stopEvents, ...(state.eventLog || [])],
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -992,6 +1125,19 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         };
       });
 
+      const provNotifs: InAppNotification[] = collectedDonations.map((d) => ({
+        id: `notif-rcv-prov-${Date.now()}-${d.id}`,
+        targetRole: 'provider',
+        targetProviderId: d.providerId,
+        relatedDonationId: d.id,
+        relatedCollectionId: collectionId,
+        title: 'Surplus Received at Depot',
+        message: `Your surplus of "${d.foodItem}" was safely received and inspected at Annam Seva Trust Depot.`,
+        type: 'success',
+        timestamp: timeStr,
+        read: false,
+      }));
+
       const notif: InAppNotification = {
         id: `notif-${Date.now()}-intake-ngo`,
         targetRole: 'ngo',
@@ -1000,12 +1146,13 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         type: 'success',
         timestamp: timeStr,
         relatedCollectionId: collectionId,
+        read: false,
       };
 
       return {
         ...state,
         donations: updatedDonations,
-        notifications: [notif, ...state.notifications],
+        notifications: [...provNotifs, notif, ...state.notifications],
         eventLog: [
           {
             id: `evt-${Date.now()}-received-${collectionId}`,
@@ -1017,6 +1164,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
           },
           ...(state.eventLog || []),
         ],
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -1058,6 +1206,8 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
           type: 'success',
           timestamp: timeStr,
           relatedCollectionId: collectionId,
+          relatedDonationId: d.id,
+          read: false,
         });
         return {
           ...d,
@@ -1083,6 +1233,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         type: 'success',
         timestamp: timeStr,
         relatedCollectionId: collectionId,
+        read: false,
       };
 
       return {
@@ -1101,6 +1252,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
           },
           ...(state.eventLog || []),
         ],
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -1221,6 +1373,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
       return {
         ...state,
         donations: demoItems,
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -1391,6 +1544,8 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
     }
 
     case 'SKIP_TONIGHT_DONATION': {
+      const prov = state.providers.find((p) => p.id === action.payload.providerId);
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       return {
         ...state,
         providers: state.providers.map((p) =>
@@ -1398,16 +1553,25 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         ),
         notifications: [
           {
-            id: `notif-${Date.now()}`,
+            id: `notif-${Date.now()}-skip-prov`,
             targetRole: 'provider',
             targetProviderId: action.payload.providerId,
             title: 'No Surplus Tonight Logged',
             message: 'Recorded zero surplus for tonight. Dispatchers and drivers updated.',
             type: 'info',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: timeStr,
+          },
+          {
+            id: `notif-${Date.now()}-skip-ngo`,
+            targetRole: 'ngo',
+            title: `Surplus Skipped: ${prov?.name || 'Provider'}`,
+            message: `${prov?.name || 'Provider'} recorded no surplus for ${action.payload.mealSlot || 'night'}.`,
+            type: 'info',
+            timestamp: timeStr,
           },
           ...state.notifications,
         ],
+        _version: (state._version || 0) + 1,
       };
     }
 
@@ -1491,28 +1655,102 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
       return {
         ...state,
         donations: [...scenarioItems, ...otherDonations],
+        _version: (state._version || 0) + 1,
       };
     }
 
     case 'RECORD_EXCLUSIONS': {
       const recordsMap = new Map(action.payload.excludedRecords.map((r) => [r.donationId, r]));
+      const newNotifications: InAppNotification[] = [];
+      const newEvents: EventLogEntry[] = [];
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const nowIso = new Date().toISOString();
+
+      const updatedDonations = state.donations.map((d) => {
+        const rec = recordsMap.get(d.id);
+        if (rec) {
+          if (d.exclusionRecord?.reason !== rec.reason) {
+            newNotifications.push({
+              id: `notif-excl-${Date.now()}-${d.id}`,
+              targetRole: 'provider',
+              targetProviderId: d.providerId,
+              title: `Surplus on Hold: ${rec.reasonLabel}`,
+              message: `Your donation of "${d.foodItem}" was placed on hold: ${rec.detail}`,
+              type: 'warning',
+              timestamp: timeStr,
+              relatedDonationId: d.id,
+              read: false,
+            });
+
+            newEvents.push({
+              id: `evt-excl-${Date.now()}-${d.id}`,
+              time: nowIso,
+              type: 'Excluded',
+              donationId: d.id,
+              actor: 'Route Safety Solver',
+              message: `Donation held from circuit: ${rec.reasonLabel} (${rec.detail})`,
+            });
+          }
+
+          return {
+            ...d,
+            exclusionRecord: rec,
+          };
+        }
+        return d;
+      });
+
       return {
         ...state,
-        donations: state.donations.map((d) => {
-          const rec = recordsMap.get(d.id);
-          if (rec) {
-            return {
-              ...d,
-              exclusionRecord: rec,
-            };
-          }
-          return d;
-        }),
+        donations: updatedDonations,
+        notifications: [...newNotifications, ...state.notifications],
+        eventLog: [...newEvents, ...(state.eventLog || [])],
+        _version: (state._version || 0) + 1,
       };
     }
 
     case 'RESET_DEMO_DATA': {
-      return initialDefaultState;
+      return {
+        ...initialDefaultState,
+        _version: (state._version || 0) + 1,
+      };
+    }
+
+    case 'SYNC_REMOTE_STATE': {
+      const { newState, version } = action.payload;
+      const currentVer = state._version || 0;
+      if (version <= currentVer) {
+        return state;
+      }
+      return {
+        ...newState,
+        _version: version,
+      };
+    }
+
+    case 'MARK_NOTIFICATION_READ': {
+      return {
+        ...state,
+        notifications: state.notifications.map((n) =>
+          n.id === action.payload.notificationId ? { ...n, read: true } : n
+        ),
+        _version: (state._version || 0) + 1,
+      };
+    }
+
+    case 'MARK_ALL_NOTIFICATIONS_READ': {
+      const { role, entityId } = action.payload;
+      return {
+        ...state,
+        notifications: state.notifications.map((n) => {
+          const matches =
+            n.targetRole === 'all' ||
+            n.targetRole === role ||
+            (role === 'provider' && n.targetProviderId === entityId);
+          return matches ? { ...n, read: true } : n;
+        }),
+        _version: (state._version || 0) + 1,
+      };
     }
 
     default:
@@ -1565,6 +1803,11 @@ interface SurplusLinkContextType {
   collections: Collection[];
   notifications: InAppNotification[];
   eventLog: EventLogEntry[];
+  isLiveConnected: boolean;
+  highlightedDonationId: string | null;
+  setHighlightedDonationId: (id: string | null) => void;
+  markNotificationRead: (notificationId: string) => void;
+  markAllNotificationsRead: (role: string, entityId?: string) => void;
   
   // Mutator Actions
   addDonation: (
@@ -1628,14 +1871,111 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [state, dispatch] = useReducer(surplusLinkReducer, undefined, loadInitialState);
   const [users, setUsers] = useState<StoredUser[]>(loadInitialUsers);
   const [session, setSession] = useState<UserSession | null>(loadInitialSession);
+  const [highlightedDonationId, setHighlightedDonationId] = useState<string | null>(null);
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean>(true);
 
-  // Persist state to localStorage
+  const tabIdRef = React.useRef(Math.random().toString(36).substring(2, 9));
+  const isBroadcastingIncomingRef = React.useRef(false);
+
+  // Cross-tab Live Synchronization: BroadcastChannel + localStorage storage event fallback
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    const CHANNEL_NAME = 'replate_madurai_live_sync_v10';
+
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        channel = new BroadcastChannel(CHANNEL_NAME);
+        channel.onmessage = (event) => {
+          if (!event.data || event.data.type !== 'REPLATE_STATE_BROADCAST') return;
+          if (event.data.senderTabId === tabIdRef.current) return; // Prevent echo
+          const incomingVer = event.data.version || 0;
+          const currentVer = state._version || 0;
+          if (incomingVer > currentVer && event.data.state) {
+            isBroadcastingIncomingRef.current = true;
+            dispatch({
+              type: 'SYNC_REMOTE_STATE',
+              payload: { newState: event.data.state, version: incomingVer },
+            });
+            setIsLiveConnected(true);
+            setTimeout(() => {
+              isBroadcastingIncomingRef.current = false;
+            }, 60);
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('BroadcastChannel initialization error:', e);
+    }
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'replate_sync_ping_v10' && e.newValue) {
+        try {
+          const ping = JSON.parse(e.newValue);
+          if (ping.senderTabId === tabIdRef.current) return;
+          const currentVer = state._version || 0;
+          if (ping.version > currentVer) {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              isBroadcastingIncomingRef.current = true;
+              dispatch({
+                type: 'SYNC_REMOTE_STATE',
+                payload: { newState: parsed, version: ping.version },
+              });
+              setIsLiveConnected(true);
+              setTimeout(() => {
+                isBroadcastingIncomingRef.current = false;
+              }, 60);
+            }
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      if (channel) channel.close();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [state._version]);
+
+  // Persist state to localStorage and broadcast to other tabs
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       console.error('Storage error:', e);
     }
+
+    if (isBroadcastingIncomingRef.current) {
+      return; // Do not echo back remote updates
+    }
+
+    const currentVer = state._version || Date.now();
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('replate_madurai_live_sync_v10');
+        bc.postMessage({
+          type: 'REPLATE_STATE_BROADCAST',
+          senderTabId: tabIdRef.current,
+          version: currentVer,
+          state,
+        });
+        bc.close();
+      }
+    } catch {}
+
+    try {
+      localStorage.setItem(
+        'replate_sync_ping_v10',
+        JSON.stringify({
+          senderTabId: tabIdRef.current,
+          version: currentVer,
+          timestamp: Date.now(),
+        })
+      );
+    } catch {}
   }, [state]);
 
   // Persist users
@@ -2135,6 +2475,15 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
         updatePlannerConfig,
         recordExcludedDonations,
         resetAllData,
+        isLiveConnected,
+        highlightedDonationId,
+        setHighlightedDonationId,
+        markNotificationRead: (notificationId: string) => {
+          dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { notificationId } });
+        },
+        markAllNotificationsRead: (role: string, entityId?: string) => {
+          dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { role, entityId } });
+        },
       }}
     >
       {children}

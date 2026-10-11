@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { FoodDonation, MealSlot } from '../../types/surplusLink';
-import { Sparkles, Route, AlertTriangle } from 'lucide-react';
+import { Sparkles, Route, AlertTriangle, Clock } from 'lucide-react';
 import { Button } from '../shared/Button';
 import { Card } from '../shared/Card';
 import { EmptyState } from '../shared/EmptyState';
 import { useToast } from '../shared/Toast';
 import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
+import { useSurplusLink } from '../../context/SurplusLinkContext';
 
 interface DonorSelectionListProps {
   donations: FoodDonation[];
@@ -33,6 +34,34 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
   mealSlot,
 }) => {
   const toast = useToast();
+  const { highlightedDonationId } = useSurplusLink();
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getUrgencyCountdown = (deadlineTimestamp: number) => {
+    const diffMs = deadlineTimestamp - now;
+    if (diffMs <= 0) {
+      return { label: 'Expired', colorClass: 'bg-slate-100 text-slate-600 border-slate-300' };
+    }
+    const totalSecs = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSecs / 3600);
+    const minutes = Math.floor((totalSecs % 3600) / 60);
+    const seconds = totalSecs % 60;
+    const label = hours > 0 ? `${hours}h ${minutes}m left` : `${minutes}m ${String(seconds).padStart(2, '0')}s left`;
+
+    if (diffMs > 2 * 60 * 60 * 1000) {
+      return { label, colorClass: 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold' };
+    } else if (diffMs >= 60 * 60 * 1000) {
+      return { label, colorClass: 'bg-amber-50 text-amber-800 border-amber-300 font-bold' };
+    } else {
+      return { label, colorClass: 'bg-rose-50 text-rose-800 border-rose-300 font-extrabold animate-pulse' };
+    }
+  };
+
   const selectedDonations = donations.filter((d) => selectedDonationIds.includes(d.id));
   const totalPortions = selectedDonations.reduce(
     (sum, d) => sum + (d.confirmedPortions ?? d.portions ?? 0),
@@ -140,12 +169,19 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
           <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto pr-1">
             {donations.map((d) => {
               const isChecked = selectedDonationIds.includes(d.id);
+              const isHighlighted = d.id === highlightedDonationId;
               const portions = d.confirmedPortions ?? d.portions ?? 0;
+              const countdown = getUrgencyCountdown(d.deadlineTimestamp);
               return (
                 <label
                   key={d.id}
-                  className={`flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-colors duration-150 ${
-                    isChecked ? 'bg-emerald-50/50' : 'hover:bg-slate-50'
+                  id={`donor-row-${d.id}`}
+                  className={`flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-all duration-150 ${
+                    isHighlighted
+                      ? 'border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-50/60 shadow-xs'
+                      : isChecked
+                      ? 'bg-emerald-50/40 border border-emerald-200/60'
+                      : 'hover:bg-slate-50 border border-transparent'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -168,15 +204,21 @@ export const DonorSelectionList: React.FC<DonorSelectionListProps> = ({
                         {d.foodItem} • By {d.collectionDeadline}
                       </div>
                       {d.exclusionRecord && (
-                        <div className="text-[10px] font-semibold text-rose-700 mt-0.5 truncate">
-                          Cannot dispatch: {d.exclusionRecord.reasonLabel}
+                        <div className="text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md mt-1 truncate">
+                          On Hold: {d.exclusionRecord.reasonLabel} ({d.exclusionRecord.detail})
                         </div>
                       )}
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0 ml-2">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] border ${countdown.colorClass}`}
+                    >
+                      <Clock className="w-3 h-3" />
+                      <span>{countdown.label}</span>
+                    </span>
                     <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 font-mono">
-                      {portions}p
+                      {portions} confirmed
                     </span>
                   </div>
                 </label>

@@ -26,6 +26,8 @@ import { EmptyState } from '../shared/EmptyState';
 import { useToast } from '../shared/Toast';
 import { getMealSlotLabel } from '../../utils/posAndPredictionUtils';
 import { PickupsRouteMap } from './PickupsRouteMap';
+import { useSurplusLink } from '../../context/SurplusLinkContext';
+import { DonationTimeline } from '../shared/DonationTimeline';
 
 interface PickupsTabProps {
   collections: Collection[];
@@ -61,6 +63,7 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
   onUpdateVehiclePosition,
 }) => {
   const toast = useToast();
+  const { eventLog, highlightedDonationId } = useSurplusLink();
   const [collectingStop, setCollectingStop] = useState<{ stop: DerivedStop; collectionId: string } | null>(null);
   const [failingStop, setFailingStop] = useState<{ stop: DerivedStop; collectionId: string } | null>(null);
   const [editingDriverTripId, setEditingDriverTripId] = useState<string | null>(null);
@@ -292,11 +295,16 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
             const isStopEnRoute = stop.status === 'En route';
             const isStopPending = stop.status === 'Pending';
 
+            const isDonationHighlighted = stop.donationId === highlightedDonationId;
+
             return (
               <div
                 key={stop.donationId}
+                id={`pickup-stop-${stop.donationId}`}
                 className={`relative bg-white rounded-xl border p-4 shadow-2xs space-y-3 transition-all duration-150 ${
-                  isStopCollected
+                  isDonationHighlighted
+                    ? 'border-emerald-500 ring-2 ring-emerald-500/30 shadow-md bg-emerald-50/20'
+                    : isStopCollected
                     ? 'border-emerald-200 bg-emerald-50/20'
                     : isStopFailed
                     ? 'border-rose-200 bg-rose-50/20'
@@ -364,6 +372,11 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                       {stop.donation.collectionDeadline}
                     </span>
                   </div>
+                </div>
+
+                {/* Reusable Donation Timeline */}
+                <div className="pt-0.5">
+                  <DonationTimeline donation={stop.donation} events={eventLog} compact={true} />
                 </div>
 
                 {/* OTP Handover */}

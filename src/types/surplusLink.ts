@@ -189,6 +189,7 @@ export interface FoodDonation {
 }
 
 export type EventLogType =
+  | 'Submitted'
   | 'Confirmed'
   | 'Accepted'
   | 'Scheduled'
@@ -196,7 +197,8 @@ export type EventLogType =
   | 'Received'
   | 'Distributed'
   | 'Failed'
-  | 'Expired';
+  | 'Expired'
+  | 'Excluded';
 
 export interface EventLogEntry {
   id: string;
@@ -378,6 +380,8 @@ export interface InAppNotification {
   type: 'info' | 'warning' | 'error' | 'success';
   timestamp: string;
   relatedCollectionId?: string;
+  relatedDonationId?: string;
+  read?: boolean;
 }
 
 export type ActiveRole = 'provider' | 'ngo' | 'dispatcher';

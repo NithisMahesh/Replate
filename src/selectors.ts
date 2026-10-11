@@ -21,6 +21,7 @@ export interface SurplusLinkState {
   collectionPlan?: CollectionPlan | null;
   selectedCollectionId?: string | null;
   eventLog?: EventLogEntry[];
+  _version?: number;
 }
 
 /**

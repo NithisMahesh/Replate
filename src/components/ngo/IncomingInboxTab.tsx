@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type * as LeafletType from 'leaflet';
 import { useSurplusLink } from '../../context/SurplusLinkContext';
 import { FoodDonation, NGO } from '../../types/surplusLink';
+import { DonationTimeline } from '../shared/DonationTimeline';
 import { Card } from '../shared/Card';
 import { Button } from '../shared/Button';
 import { EmptyState } from '../shared/EmptyState';
@@ -26,7 +27,7 @@ import {
 } from 'lucide-react';
 
 export const IncomingInboxTab: React.FC = () => {
-  const { donations, ngo, updateDonation } = useSurplusLink();
+  const { donations, ngo, updateDonation, eventLog, highlightedDonationId } = useSurplusLink();
   const toast = useToast();
 
   const [now, setNow] = useState(Date.now());
@@ -315,13 +316,22 @@ export const IncomingInboxTab: React.FC = () => {
                 const trusted = isTrustedShop(item);
                 const countdown = getRemainingCountdown(item.deadlineTimestamp, now);
                 const portions = item.confirmedPortions ?? item.portions;
+                const isHighlighted = item.id === highlightedDonationId;
                 const isTypedLocation =
                   !item.lat ||
                   !item.lng ||
                   Boolean(item.locationLandmark && (!item.locationAccuracy || item.locationAccuracy > 100));
 
                 return (
-                  <Card key={item.id} className="relative overflow-hidden border-slate-200/90 hover:border-slate-300 transition-all">
+                  <Card
+                    key={item.id}
+                    id={`incoming-donation-${item.id}`}
+                    className={`relative overflow-hidden transition-all ${
+                      isHighlighted
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/30 shadow-md bg-emerald-50/10'
+                        : 'border-slate-200/90 hover:border-slate-300'
+                    }`}
+                  >
                     {/* Urgency Stripe */}
                     <div
                       className={`absolute top-0 left-0 right-0 h-1.5 ${
@@ -446,6 +456,11 @@ export const IncomingInboxTab: React.FC = () => {
                         </div>
                       </div>
 
+                      {/* Reusable Donation Timeline */}
+                      <div className="pt-0.5">
+                        <DonationTimeline donation={item} events={eventLog} compact={true} />
+                      </div>
+
                       {/* Action Bar */}
                       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
                         {/* Left actions: Map & Call mark */}
@@ -524,8 +539,18 @@ export const IncomingInboxTab: React.FC = () => {
                 const isScheduled = item.status === 'Scheduled' || item.status === 'En route';
                 const isCollected = item.status === 'Collected' || item.status === 'Received' || item.status === 'Distributed';
 
+                const isHighlighted = item.id === highlightedDonationId;
+
                 return (
-                  <Card key={item.id} className="p-4 bg-white border-slate-200">
+                  <Card
+                    key={item.id}
+                    id={`history-donation-${item.id}`}
+                    className={`p-4 bg-white transition-all space-y-3 ${
+                      isHighlighted
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/30 shadow-md bg-emerald-50/10'
+                        : 'border-slate-200'
+                    }`}
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -579,6 +604,11 @@ export const IncomingInboxTab: React.FC = () => {
                           </span>
                         )}
                       </div>
+                    </div>
+
+                    {/* Shared Status Timeline */}
+                    <div className="pt-2 border-t border-slate-100">
+                      <DonationTimeline donation={item} events={eventLog} compact={true} />
                     </div>
                   </Card>
                 );
