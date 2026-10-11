@@ -1,6 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSurplusLink } from '../../context/SurplusLinkContext';
-import { X, UserCheck, ShieldCheck, CheckCircle2, RotateCcw, Sparkles, Building2, Store, HeartHandshake } from 'lucide-react';
+import { runDataIntegrityChecks, DataIntegrityResult } from '../../selectors';
+import {
+  X,
+  UserCheck,
+  ShieldCheck,
+  CheckCircle2,
+  RotateCcw,
+  Building2,
+  Store,
+  HeartHandshake,
+  AlertTriangle,
+} from 'lucide-react';
 import { useToast } from './Toast';
 
 interface DemoDrawerProps {
@@ -10,6 +21,7 @@ interface DemoDrawerProps {
 
 export const DemoDrawer: React.FC<DemoDrawerProps> = ({ isOpen, onClose }) => {
   const {
+    state,
     session,
     switchDemoAccount,
     providers,
@@ -18,6 +30,7 @@ export const DemoDrawer: React.FC<DemoDrawerProps> = ({ isOpen, onClose }) => {
     resetAllData,
   } = useSurplusLink();
 
+  const [checkResult, setCheckResult] = useState<DataIntegrityResult | null>(null);
   const toast = useToast();
 
   if (!isOpen) return null;
@@ -31,6 +44,16 @@ export const DemoDrawer: React.FC<DemoDrawerProps> = ({ isOpen, onClose }) => {
   const handleApprove = (providerId: string, name: string) => {
     approveProvider(providerId);
     toast.success(`Approved "${name}"! Donations now enabled.`);
+  };
+
+  const handleRunChecks = () => {
+    const result = runDataIntegrityChecks(state);
+    setCheckResult(result);
+    if (result.passed) {
+      toast.success('All data integrity checks passed! State is consistent.');
+    } else {
+      toast.error('Integrity checks detected inconsistencies in state.');
+    }
   };
 
   const pendingProviders = providers.filter((p) => p.isApproved === false);
@@ -253,7 +276,105 @@ export const DemoDrawer: React.FC<DemoDrawerProps> = ({ isOpen, onClose }) => {
           </div>
         </div>
 
-        {/* 4. Reset All Demo Data */}
+        {/* 4. Data Integrity Guard (Dev-only) */}
+        <div className="space-y-2.5 pt-2 border-t border-slate-100">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+              Data Integrity Guard:
+            </span>
+            {checkResult && (
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  checkResult.passed
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-rose-100 text-rose-800 border border-rose-300'
+                }`}
+              >
+                {checkResult.passed ? 'ALL CHECKS PASS' : 'CHECKS FAILED'}
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleRunChecks}
+            className="w-full py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+          >
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            Run Data Checks
+          </button>
+
+          {checkResult && (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 text-[11px]">No double collection bookings</span>
+                  <span
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      checkResult.checks.noDoubleBookings.passed
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {checkResult.checks.noDoubleBookings.passed ? 'PASS' : 'FAIL'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 text-[11px]">No scheduled surplus in plan pool</span>
+                  <span
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      checkResult.checks.noScheduledInPool.passed
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {checkResult.checks.noScheduledInPool.passed ? 'PASS' : 'FAIL'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 text-[11px]">Non-negative & valid lifecycle</span>
+                  <span
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      checkResult.checks.quantitiesValid.passed
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {checkResult.checks.quantitiesValid.passed ? 'PASS' : 'FAIL'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 text-[11px]">Totals equal sum of their parts</span>
+                  <span
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      checkResult.checks.totalsBalanced.passed
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {checkResult.checks.totalsBalanced.passed ? 'PASS' : 'FAIL'}
+                  </span>
+                </div>
+              </div>
+
+              {!checkResult.passed && checkResult.errors && checkResult.errors.length > 0 && (
+                <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[11px] text-rose-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5 text-rose-600" />
+                    <span>Failures ({checkResult.errors.length}):</span>
+                  </div>
+                  <ul className="list-disc list-inside space-y-0.5 text-rose-800 max-h-36 overflow-y-auto">
+                    {checkResult.errors.map((msg, i) => (
+                      <li key={i}>{msg}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 5. Reset All Demo Data */}
         <div className="pt-auto border-t border-slate-100 pt-4">
           <button
             type="button"

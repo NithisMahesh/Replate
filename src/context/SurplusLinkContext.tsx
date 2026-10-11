@@ -1,3 +1,4 @@
+import { MEAL_SLOT_LABELS } from '../utils/posAndPredictionUtils';
 import React, { createContext, useContext, useReducer, useState, useEffect, useMemo } from 'react';
 import {
   Provider,
@@ -17,6 +18,7 @@ import {
   MealSlot,
   MealSlotWindows,
   VehiclePosition,
+  EventLogEntry,
 } from '../types/surplusLink';
 import {
   SEED_PROVIDERS,
@@ -38,7 +40,15 @@ import {
   createScenario3Donations,
 } from '../utils/plannerRuleTests';
 
-const STORAGE_KEY = 'replate_madurai_state_v8';
+const STORAGE_KEY = 'replate_madurai_state_v10';
+const LEGACY_STORAGE_KEYS = [
+  'replate_madurai_state_v9',
+  'replate_madurai_state_v8',
+  'replate_madurai_state_v7',
+  'replate_madurai_state_v6',
+  'surpluslink_app_state_v2',
+  'surpluslink_app_state_v1',
+];
 const USERS_STORAGE_KEY = 'surpluslink_users_v2';
 const SESSION_STORAGE_KEY = 'surpluslink_session_v2';
 
@@ -76,6 +86,15 @@ type Action =
       payload: {
         donationId: string;
         updates: Partial<FoodDonation>;
+      };
+    }
+  | {
+      type: 'ALLOCATE_TRIP';
+      payload: {
+        trip: TripPlan;
+        driverName: string;
+        remainingPlan?: CollectionPlan | null;
+        collectionId?: string;
       };
     }
   | {
@@ -168,11 +187,11 @@ type Action =
     }
   | {
       type: 'SKIP_TONIGHT_DONATION';
-      payload: { providerId: string };
+      payload: { providerId: string; mealSlot?: MealSlot };
     }
   | {
       type: 'UNSKIP_TONIGHT_DONATION';
-      payload: { providerId: string };
+      payload: { providerId: string; mealSlot?: MealSlot };
     }
   | {
       type: 'REGISTER_PROVIDER';
@@ -210,7 +229,7 @@ type Action =
       type: 'RESET_DEMO_DATA';
     };
 
-const initialDefaultState: SurplusLinkState = {
+export const initialDefaultState: SurplusLinkState = {
   providers: SEED_PROVIDERS,
   ngo: SEED_NGO,
   donations: SEED_INITIAL_DONATIONS,
@@ -225,11 +244,72 @@ const initialDefaultState: SurplusLinkState = {
       timestamp: '21:00',
     },
   ],
+  eventLog: [
+    {
+      id: 'evt-init-1',
+      time: new Date(Date.now() - 3600 * 1000).toISOString(),
+      type: 'Confirmed',
+      donationId: 'don-seed-1',
+      actor: 'Sri Krishna Bakes & Confectionery',
+      message: 'Confirmed 25 portions of "Buns, Sandwich Loaves & Veg Puffs". Added to donation pool.',
+    },
+    {
+      id: 'evt-init-2',
+      time: new Date(Date.now() - 3000 * 1000).toISOString(),
+      type: 'Accepted',
+      collectionId: 'col-seed-1',
+      actor: 'NGO Dispatcher',
+      message: 'Trip #1 accepted with 3 stops (50 portions) assigned to Murugan Selvam.',
+    },
+    {
+      id: 'evt-init-3',
+      time: new Date(Date.now() - 2900 * 1000).toISOString(),
+      type: 'Scheduled',
+      donationId: 'don-seed-1',
+      collectionId: 'col-seed-1',
+      actor: 'NGO Dispatcher',
+      message: 'Scheduled for pickup by Murugan Selvam (Stop #1).',
+    },
+    {
+      id: 'evt-init-4',
+      time: new Date(Date.now() - 2400 * 1000).toISOString(),
+      type: 'Collected',
+      donationId: 'don-seed-1',
+      collectionId: 'col-seed-1',
+      actor: 'Murugan Selvam',
+      message: 'Collected 25 portions of "Buns, Sandwich Loaves & Veg Puffs".',
+    },
+    {
+      id: 'evt-init-5',
+      time: new Date(Date.now() - 1800 * 1000).toISOString(),
+      type: 'Received',
+      collectionId: 'col-seed-1',
+      actor: 'NGO Depot Manager',
+      message: 'Intake verified at NGO depot: 50 portions received.',
+    },
+    {
+      id: 'evt-init-6',
+      time: new Date(Date.now() - 1200 * 1000).toISOString(),
+      type: 'Distributed',
+      collectionId: 'col-seed-1',
+      actor: 'NGO Feeding Coordinator',
+      message: 'Distributed to beneficiaries: 50 meals served.',
+    },
+  ],
 };
 
 function loadInitialState(): SurplusLinkState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      for (const legacyKey of LEGACY_STORAGE_KEYS) {
+        const legacyData = localStorage.getItem(legacyKey);
+        if (legacyData) {
+          raw = legacyData;
+          break;
+        }
+      }
+    }
     if (!raw) return initialDefaultState;
     const parsed = JSON.parse(raw);
     if (
@@ -261,13 +341,25 @@ function loadInitialState(): SurplusLinkState {
             : undefined,
         })),
         ngo: parsed.ngo ? { ...parsed.ngo, serviceRadiusKm: parsed.ngo.serviceRadiusKm ?? 5.0 } : SEED_NGO,
-        donations: (parsed.donations || []).map((d: FoodDonation) => ({
-          ...d,
+        donations: (parsed.donations || []).map((d: FoodDonation) => {
+          const confirmed = d.confirmedPortions ?? d.portions ?? 0;
+          return {
+            ...d,
+                confirmedPortions: confirmed,
+            portions: confirmed,
+            collectedPortions: d.collectedPortions,
+            receivedPortions: d.receivedPortions,
+            distributedPortions: d.distributedPortions,
+            collectedAt: d.collectedAt,
+            receivedAt: d.receivedAt,
+            distributedAt: d.distributedAt,
+
           mealSlot: d.mealSlot || 'night',
           status: d.status || 'Confirmed',
           source: d.source || 'provider_app',
           verification: d.verification || (d.status === 'Submitted' ? 'unverified' : 'verified'),
-        })),
+          };
+        }),
         collections: parsed.collections.map((c: Collection) => ({
           ...c,
           status: c.status || 'Scheduled',
@@ -277,6 +369,7 @@ function loadInitialState(): SurplusLinkState {
           routeProgress: c.routeProgress,
         })),
         notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+        eventLog: Array.isArray(parsed.eventLog) && parsed.eventLog.length > 0 ? parsed.eventLog : initialDefaultState.eventLog || [],
       };
     }
     return initialDefaultState;
@@ -345,15 +438,62 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         ...state,
         donations: [newDonation, ...state.donations],
         notifications: [notif, ...state.notifications],
+        eventLog: [
+          ...(status === 'Confirmed'
+            ? [
+                {
+                  id: `evt-${Date.now()}-confirmed-${newDonation.id}`,
+                  time: newDonation.createdAt,
+                  type: 'Confirmed' as const,
+                  donationId: newDonation.id,
+                  actor: newDonation.providerName || 'Provider Kitchen',
+                  message: `Confirmed ${newDonation.confirmedPortions} portions of "${newDonation.foodItem}". Added to donation pool.`,
+                },
+              ]
+            : []),
+          ...(state.eventLog || []),
+        ],
       };
     }
 
     case 'UPDATE_DONATION_STATUS': {
+      const nowIso = new Date().toISOString();
+      const targetDonation = state.donations.find((d) => d.id === action.payload.donationId);
+      const newStatusEvents: EventLogEntry[] = [];
+      if (targetDonation && action.payload.status === 'Confirmed' && targetDonation.status !== 'Confirmed') {
+        newStatusEvents.push({
+          id: `evt-${Date.now()}-confirmed-${targetDonation.id}`,
+          time: nowIso,
+          type: 'Confirmed',
+          donationId: targetDonation.id,
+          actor: targetDonation.providerName || 'Provider Kitchen',
+          message: `Confirmed ${targetDonation.confirmedPortions ?? targetDonation.portions} portions of "${targetDonation.foodItem}". Added to donation pool.`,
+        });
+      } else if (targetDonation && action.payload.status === 'Expired') {
+        newStatusEvents.push({
+          id: `evt-${Date.now()}-expired-${targetDonation.id}`,
+          time: nowIso,
+          type: 'Expired',
+          donationId: targetDonation.id,
+          actor: 'System Safety Monitor',
+          message: `Safe collection window expired for "${targetDonation.foodItem}".`,
+        });
+      } else if (targetDonation && action.payload.status === 'Failed') {
+        newStatusEvents.push({
+          id: `evt-${Date.now()}-failed-${targetDonation.id}`,
+          time: nowIso,
+          type: 'Failed',
+          donationId: targetDonation.id,
+          actor: 'System',
+          message: `Donation failed for "${targetDonation.foodItem}".`,
+        });
+      }
       return {
         ...state,
         donations: state.donations.map((d) =>
           d.id === action.payload.donationId ? { ...d, status: action.payload.status } : d
         ),
+        eventLog: [...newStatusEvents, ...(state.eventLog || [])],
       };
     }
 
@@ -405,8 +545,10 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
       };
     }
 
+    case 'ALLOCATE_TRIP':
     case 'CREATE_COLLECTION': {
-      const { trip, driverName } = action.payload;
+      const { trip, driverName, remainingPlan } = action.payload;
+      const newEvents: EventLogEntry[] = [];
       const collectionId = action.payload.collectionId || `coll-${Date.now()}`;
       const now = new Date();
       const stopProgress: Collection['stopProgress'] = {};
@@ -473,6 +615,15 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
             relatedCollectionId: collectionId,
           });
         }
+        newEvents.push({
+          id: `evt-${Date.now()}-sched-${s.donationId}`,
+          time: now.toISOString(),
+          type: 'Scheduled',
+          donationId: s.donationId,
+          collectionId,
+          actor: 'NGO Dispatcher',
+          message: `Scheduled for pickup by ${driver.name} (Stop #${s.stopOrder}, approx ${arrivalTimeFormatted}).`,
+        });
       });
 
       const newCollection: Collection = {
@@ -495,6 +646,15 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         stopProgress,
         scheduledAt: now.toISOString(),
       };
+
+      newEvents.unshift({
+        id: `evt-${Date.now()}-accept-${collectionId}`,
+        time: now.toISOString(),
+        type: 'Accepted',
+        collectionId,
+        actor: 'NGO Dispatcher',
+        message: `Trip #${assignedTripNumber} accepted with ${trip.stops.length} stops (${trip.totalPortions} portions) assigned to ${driver.name}.`,
+      });
 
       if (hasActiveTrip) {
         newNotifications.unshift({
@@ -532,11 +692,44 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         return d;
       });
 
+      let nextCollectionPlan: CollectionPlan | null = null;
+      if (remainingPlan !== undefined) {
+        nextCollectionPlan = remainingPlan;
+      } else if (state.collectionPlan) {
+        const acceptedIdsSet = new Set(trip.stops.map((s) => s.donationId));
+        const filteredTrips = state.collectionPlan.trips
+          .map((t) => {
+            const remainingStops = t.stops.filter((s) => !acceptedIdsSet.has(s.donationId));
+            if (remainingStops.length === 0) return null;
+            const remainingPortions = remainingStops.reduce((sum, s) => sum + s.portions, 0);
+            return {
+              ...t,
+              stops: remainingStops,
+              totalPortions: remainingPortions,
+            };
+          })
+          .filter((t): t is TripPlan => t !== null);
+
+        if (filteredTrips.length > 0) {
+          nextCollectionPlan = {
+            ...state.collectionPlan,
+            trips: filteredTrips,
+            dispatchableTrips: filteredTrips.filter((t) => t.dispatchStatus === 'DISPATCHABLE'),
+            onHoldTrips: filteredTrips.filter((t) => t.dispatchStatus === 'ON_HOLD'),
+            totalPortions: filteredTrips.reduce((sum, t) => sum + t.totalPortions, 0),
+          };
+        } else {
+          nextCollectionPlan = null;
+        }
+      }
+
       return {
         ...state,
         collections: [newCollection, ...state.collections],
         donations: updatedDonations,
+        collectionPlan: nextCollectionPlan,
         notifications: [...newNotifications, ...state.notifications],
+        eventLog: [...newEvents, ...(state.eventLog || [])],
       };
     }
 
@@ -547,7 +740,10 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
 
       const targetDonation = state.donations.find((d) => d.id === donationId);
       const confirmedQty = targetDonation ? (targetDonation.confirmedPortions ?? targetDonation.portions) : 0;
-      const actual = actualQty ?? confirmedQty;
+      const nowIso = new Date().toISOString();
+      const rawActual = actualQty !== undefined ? actualQty : confirmedQty;
+      const actual = Math.max(0, Math.min(rawActual, confirmedQty));
+      const shortfall = confirmedQty - actual;
       const discrepancy = actual - confirmedQty;
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -663,6 +859,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
               ...d,
               status: 'Collected' as DonationStatus,
               collectedPortions: actual,
+              collectedAt: nowIso,
             };
           }
           if (newStatus === 'Failed') {
@@ -727,11 +924,35 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         );
       }
 
+      const stopEvents: EventLogEntry[] = [];
+      if (newStatus === 'Collected') {
+        stopEvents.push({
+          id: `evt-${Date.now()}-collected-${donationId}`,
+          time: nowIso,
+          type: 'Collected',
+          donationId,
+          collectionId,
+          actor: targetCollection.driver.name || 'Driver',
+          message: `Collected ${actual} / ${confirmedQty} portions${shortfall > 0 ? ` (${shortfall} portion${shortfall === 1 ? '' : 's'} short)` : ''} of "${foodItemName}".`,
+        });
+      } else if (newStatus === 'Failed') {
+        stopEvents.push({
+          id: `evt-${Date.now()}-failed-${donationId}`,
+          time: nowIso,
+          type: 'Failed',
+          donationId,
+          collectionId,
+          actor: targetCollection.driver.name || 'Driver',
+          message: `Pickup failed for "${foodItemName}": ${failReason || 'Unknown reason'}.`,
+        });
+      }
+
       return {
         ...state,
         collections: updatedCollections,
         donations: updatedDonations,
         notifications: [...autoStartNotifications, ...newNotifications, ...state.notifications],
+        eventLog: [...stopEvents, ...(state.eventLog || [])],
       };
     }
 
@@ -747,12 +968,22 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         (d) => targetColl.donationIds.includes(d.id) && (d.status === 'Collected' || d.status === 'Received' || d.status === 'Distributed')
       );
       const totalCollected = collectedDonations.reduce((sum, d) => sum + (d.collectedPortions || d.confirmedPortions || 0), 0) || 1;
+      const validReceived = Math.max(0, Math.min(quantityReceived, totalCollected));
+      const receivedShortfall = totalCollected - validReceived;
+      let allocatedReceivedSoFar = 0;
 
       const updatedDonations = state.donations.map((d) => {
         if (!targetColl.donationIds.includes(d.id)) return d;
         if (d.status !== 'Collected' && d.status !== 'Received' && d.status !== 'Distributed') return d;
         const stopCollected = d.collectedPortions || d.confirmedPortions || 0;
-        const stopReceived = Math.round(((stopCollected / totalCollected) * quantityReceived) * 10) / 10;
+        const isLast = d.id === collectedDonations[collectedDonations.length - 1]?.id;
+        let stopReceived: number;
+        if (isLast) {
+          stopReceived = Math.max(0, Math.min(stopCollected, Math.round((validReceived - allocatedReceivedSoFar) * 10) / 10));
+        } else {
+          stopReceived = Math.min(stopCollected, Math.round(((stopCollected / totalCollected) * validReceived) * 10) / 10);
+          allocatedReceivedSoFar += stopReceived;
+        }
         return {
           ...d,
           status: (d.status === 'Distributed' ? 'Distributed' : 'Received') as DonationStatus,
@@ -764,7 +995,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
       const notif: InAppNotification = {
         id: `notif-${Date.now()}-intake-ngo`,
         targetRole: 'ngo',
-        title: `Intake Verified: ${quantityReceived} Portions Received`,
+        title: `Intake Verified: ${validReceived} Portions Received`,
         message: `Trip food intake logged at NGO hub. Ready for evening meal distribution.`,
         type: 'success',
         timestamp: timeStr,
@@ -775,6 +1006,17 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         ...state,
         donations: updatedDonations,
         notifications: [notif, ...state.notifications],
+        eventLog: [
+          {
+            id: `evt-${Date.now()}-received-${collectionId}`,
+            time: nowIso,
+            type: 'Received' as const,
+            collectionId,
+            actor: 'NGO Depot Manager',
+            message: `Intake verified at NGO depot: ${validReceived} / ${totalCollected} portions received${receivedShortfall > 0 ? ` (${receivedShortfall} portion${receivedShortfall === 1 ? '' : 's'} short)` : ''}.`,
+          },
+          ...(state.eventLog || []),
+        ],
       };
     }
 
@@ -789,14 +1031,24 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
       const collectedDonations = state.donations.filter(
         (d) => targetColl.donationIds.includes(d.id) && (d.status === 'Collected' || d.status === 'Received' || d.status === 'Distributed')
       );
-      const totalCollected = collectedDonations.reduce((sum, d) => sum + (d.collectedPortions || d.confirmedPortions || 0), 0) || 1;
+      const totalReceived = collectedDonations.reduce((sum, d) => sum + (d.receivedPortions ?? d.collectedPortions ?? d.confirmedPortions ?? 0), 0) || 1;
+      const validDistributed = Math.max(0, Math.min(quantityDistributed, totalReceived));
+      const distributedShortfall = totalReceived - validDistributed;
+      let allocatedDistributedSoFar = 0;
 
       const providerNotifs: InAppNotification[] = [];
       const updatedDonations = state.donations.map((d) => {
         if (!targetColl.donationIds.includes(d.id)) return d;
         if (d.status !== 'Collected' && d.status !== 'Received' && d.status !== 'Distributed') return d;
-        const stopCollected = d.collectedPortions || d.confirmedPortions || 0;
-        const stopDistributed = Math.round(((stopCollected / totalCollected) * quantityDistributed) * 10) / 10;
+        const stopReceived = d.receivedPortions ?? d.collectedPortions ?? d.confirmedPortions ?? 0;
+        const isLast = d.id === collectedDonations[collectedDonations.length - 1]?.id;
+        let stopDistributed: number;
+        if (isLast) {
+          stopDistributed = Math.max(0, Math.min(stopReceived, Math.round((validDistributed - allocatedDistributedSoFar) * 10) / 10));
+        } else {
+          stopDistributed = Math.min(stopReceived, Math.round(((stopReceived / totalReceived) * validDistributed) * 10) / 10);
+          allocatedDistributedSoFar += stopDistributed;
+        }
         providerNotifs.push({
           id: `notif-${Date.now()}-${d.providerId}-distrib`,
           targetRole: 'provider',
@@ -826,7 +1078,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
       const ngoNotif: InAppNotification = {
         id: `notif-${Date.now()}-distrib-ngo`,
         targetRole: 'ngo',
-        title: `Distribution Recorded: ${quantityDistributed} Meals Served`,
+        title: `Distribution Recorded: ${validDistributed} Meals Served`,
         message: `Evening feeding complete! Beneficiaries fed tonight. Only distributed portions are tallied as meals served.`,
         type: 'success',
         timestamp: timeStr,
@@ -838,6 +1090,17 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
         collections: updatedCollections,
         donations: updatedDonations,
         notifications: [ngoNotif, ...providerNotifs, ...state.notifications],
+        eventLog: [
+          {
+            id: `evt-${Date.now()}-distrib-${collectionId}`,
+            time: nowIso,
+            type: 'Distributed' as const,
+            collectionId,
+            actor: 'NGO Feeding Coordinator',
+            message: `Distributed to beneficiaries: ${validDistributed} / ${totalReceived} meals served${distributedShortfall > 0 ? ` (${distributedShortfall} portion${distributedShortfall === 1 ? '' : 's'} short)` : ''}.`,
+          },
+          ...(state.eventLog || []),
+        ],
       };
     }
 
@@ -976,7 +1239,7 @@ export function surplusLinkReducer(state: SurplusLinkState, action: Action): Sur
           if (p.id !== providerId) return p;
           const slot = mealSlot || 'night';
           const currentDefaults: ProviderDefaults = p.defaults || {
-            usualFoodItem: p.type === 'bakery' ? 'Assorted Bread & Veg Puffs' : 'Dinner Meals & Rice',
+            usualFoodItem: p.type === 'bakery' ? 'Assorted Bread & Veg Puffs' : `${MEAL_SLOT_LABELS[slot]} Meals & Rice`,
             category: p.type === 'bakery' ? 'bakery_bread' : 'cooked_meal',
             storageType: p.type === 'bakery' ? 'room_temp' : 'hot_held',
             closingTime: closingTime || p.closingTime || '21:30',
@@ -1301,6 +1564,7 @@ interface SurplusLinkContextType {
   donations: FoodDonation[];
   collections: Collection[];
   notifications: InAppNotification[];
+  eventLog: EventLogEntry[];
   
   // Mutator Actions
   addDonation: (
@@ -1312,6 +1576,7 @@ interface SurplusLinkContextType {
   updateDonation: (donationId: string, updates: Partial<FoodDonation>) => void;
   updateDonationStatus: (donationId: string, status: DonationStatus) => void;
   acceptTripCollection: (trip: TripPlan, driverName: string, collectionId?: string) => string;
+  allocateTrip: (trip: TripPlan, driverName: string, collectionId?: string) => Promise<string>;
   updateTripDriver: (collectionId: string, driverName: string, driverPhone?: string) => void;
   updateVehiclePosition: (
     collectionId: string,
@@ -1348,8 +1613,8 @@ interface SurplusLinkContextType {
   syncBilling: (providerId: string) => void;
   toggleAutoFillSoldQty: (providerId: string, enabled: boolean) => void;
   updateNgoSettings: (settings: Partial<NGO>) => void;
-  skipTonightDonation: (providerId: string) => void;
-  unskipTonightDonation: (providerId: string) => void;
+  skipTonightDonation: (providerId: string, mealSlot?: MealSlot) => void;
+  unskipTonightDonation: (providerId: string, mealSlot?: MealSlot) => void;
   loadScenario: (scenarioNumber: 1 | 2 | 3) => void;
   plannerConfig: PlannerConfig;
   updatePlannerConfig: (config: Partial<PlannerConfig>) => void;
@@ -1496,7 +1761,7 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
       contactPerson: data.name.trim() + ' Manager',
       isApproved: false, // New providers require approval!
       defaults: {
-        usualFoodItem: data.type === 'bakery' ? 'Assorted Bread & Veg Puffs' : 'Dinner Meals & Rice',
+        usualFoodItem: data.type === 'bakery' ? 'Assorted Bread & Veg Puffs' : 'Cooked Meals & Rice',
         category: data.type === 'bakery' ? 'bakery_bread' : 'cooked_meal',
         storageType: data.type === 'bakery' ? 'room_temp' : 'hot_held',
         closingTime: data.closingTime || '21:30',
@@ -1637,9 +1902,27 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
     dispatch({ type: 'UPDATE_DONATION_STATUS', payload: { donationId, status } });
   };
 
+  const allocateTrip = async (trip: TripPlan, driverName: string, collectionId?: string): Promise<string> => {
+    const id = collectionId || `coll-${Date.now()}`;
+    const acceptedDonationIds = new Set(trip.stops.map((s) => s.donationId));
+    const leftover = state.donations.filter(
+      (d) => d.status === 'Confirmed' && !acceptedDonationIds.has(d.id) && (!trip.mealSlot || (d.mealSlot || 'night') === trip.mealSlot)
+    );
+    let remainingPlan: CollectionPlan | null = null;
+    if (leftover.length > 0) {
+      try {
+        remainingPlan = await generateCollectionPlan(leftover, state.providers, state.ngo, getSavedPlannerConfig(), undefined, trip.mealSlot);
+      } catch {
+        remainingPlan = null;
+      }
+    }
+    dispatch({ type: 'ALLOCATE_TRIP', payload: { trip, driverName, remainingPlan, collectionId: id } });
+    return id;
+  };
+
   const acceptTripCollection = (trip: TripPlan, driverName: string, collectionId?: string) => {
     const id = collectionId || `coll-${Date.now()}`;
-    dispatch({ type: 'CREATE_COLLECTION', payload: { trip, driverName, collectionId: id } });
+    allocateTrip(trip, driverName, id);
     return id;
   };
 
@@ -1762,12 +2045,12 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
   };
 
-  const skipTonightDonation = (providerId: string) => {
-    dispatch({ type: 'SKIP_TONIGHT_DONATION', payload: { providerId } });
+  const skipTonightDonation = (providerId: string, mealSlot: MealSlot = 'night') => {
+    dispatch({ type: 'SKIP_TONIGHT_DONATION', payload: { providerId, mealSlot } });
   };
 
-  const unskipTonightDonation = (providerId: string) => {
-    dispatch({ type: 'UNSKIP_TONIGHT_DONATION', payload: { providerId } });
+  const unskipTonightDonation = (providerId: string, mealSlot: MealSlot = 'night') => {
+    dispatch({ type: 'UNSKIP_TONIGHT_DONATION', payload: { providerId, mealSlot } });
   };
 
   const [plannerConfig, setPlannerConfig] = useState<PlannerConfig>(getSavedPlannerConfig);
@@ -1822,6 +2105,8 @@ export const SurplusLinkProvider: React.FC<{ children: React.ReactNode }> = ({ c
         donations: state.donations,
         collections: state.collections,
         notifications: state.notifications,
+        eventLog: state.eventLog || [],
+        allocateTrip,
         addDonation,
         updateDonation,
         updateDonationStatus,

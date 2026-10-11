@@ -82,7 +82,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
 
   const handleConfirmWithToast = () => {
     onConfirm();
-    toast.success(`Confirmed ${surplusPortions} portions for ${mealLabel.toLowerCase()}!`);
+    toast.success(`Confirmed ${surplusPortions} portions of ${mealLabel}!`);
   };
 
   const handleSkipWithToast = () => {
@@ -185,7 +185,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
         {(tonightDonation.status === 'Received' || tonightDonation.status === 'Distributed') && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-900 flex items-center gap-2.5">
             <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
-            <span className="leading-relaxed">Delivered & distributed to community night shelter residents!</span>
+            <span className="leading-relaxed">Delivered & distributed to community shelter residents!</span>
           </div>
         )}
 
@@ -415,7 +415,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
             disabled
             className="opacity-70 cursor-not-allowed bg-slate-100 text-slate-600 border-slate-300 font-semibold"
           >
-            Save Meal Production above to confirm surplus
+            Save {mealLabel} Production above to confirm surplus
           </Button>
         ) : hasIncompleteDefaults ? (
           <Button
@@ -426,7 +426,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
             onClick={onOpenMissingDetails}
             className="!bg-amber-500 hover:!bg-amber-600 !border-amber-600 text-slate-950 font-semibold"
           >
-            Set {missingFields[0]} to confirm ({surplusPortions} portions)
+            Set {missingFields[0]} to confirm {mealLabel} ({surplusPortions} portions)
           </Button>
         ) : (
           <Button
@@ -436,7 +436,7 @@ export const TonightDonationCard: React.FC<TonightDonationCardProps> = ({
             fullWidth
             onClick={handleConfirmWithToast}
           >
-            Confirm {surplusPortions} portions
+            Confirm {surplusPortions} portions of {mealLabel}
           </Button>
         )}
       </div>

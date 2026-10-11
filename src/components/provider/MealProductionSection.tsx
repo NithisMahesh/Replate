@@ -4,12 +4,25 @@ import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
 import { formatTime12 } from '../../utils/deadlineUtils';
 import { MealSlot, MealSlotWindows, BillingConnection } from '../../types/surplusLink';
-import { getCurrentMealSlot, getMealSlotLabel, DEFAULT_MEAL_SLOT_WINDOWS } from '../../utils/posAndPredictionUtils';
+import {
+  getCurrentMealSlot,
+  getMealSlotLabel,
+  MEAL_SLOT_LABELS,
+  DEFAULT_MEAL_SLOT_WINDOWS,
+} from '../../utils/posAndPredictionUtils';
 import { BillingStatusCard } from './BillingStatusCard';
+
+export type MealSlotStatus = 'Not started' | 'Saved' | 'Confirmed' | 'Scheduled' | 'Locked';
 
 export interface MealProductionData {
   preparedQty: number;
   preparationTime: string;
+  closingTime: string;
+}
+
+export interface MealSlotDraft {
+  quantityStr: string;
+  prepTime: string;
   closingTime: string;
 }
 
@@ -29,13 +42,31 @@ interface MealProductionSectionProps {
   billingConnection?: BillingConnection;
   onConnectBilling?: () => void;
   onSyncBilling?: () => void;
+  slotStatuses?: Record<MealSlot, MealSlotStatus>;
 }
 
-const MEAL_SLOTS: { id: MealSlot; label: string; defaultWindow: string }[] = [
-  { id: 'morning', label: 'Breakfast', defaultWindow: '06:00 – 10:00' },
-  { id: 'afternoon', label: 'Lunch', defaultWindow: '12:00 – 15:00' },
-  { id: 'night', label: 'Dinner', defaultWindow: '19:00 – 23:00' },
+const MEAL_SLOTS: { id: MealSlot; defaultWindow: string }[] = [
+  { id: 'morning', defaultWindow: '06:00 – 10:00' },
+  { id: 'afternoon', defaultWindow: '12:00 – 15:00' },
+  { id: 'night', defaultWindow: '19:00 – 23:00' },
 ];
+
+function getDefaultDraftForSlot(
+  slot: MealSlot,
+  windows: MealSlotWindows,
+  savedValues?: { quantity?: number; prepTime?: string; closingTime?: string }
+): MealSlotDraft {
+  const win = windows[slot] || DEFAULT_MEAL_SLOT_WINDOWS[slot];
+  const defaultQuantity = slot === 'morning' ? '60' : slot === 'afternoon' ? '90' : '80';
+  const defaultPrep = slot === 'morning' ? '07:00' : slot === 'afternoon' ? '12:30' : '19:30';
+  const defaultClose = win.end;
+
+  return {
+    quantityStr: savedValues?.quantity ? String(savedValues.quantity) : defaultQuantity,
+    prepTime: savedValues?.prepTime || defaultPrep,
+    closingTime: savedValues?.closingTime || defaultClose,
+  };
+}
 
 export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
   activeMealSlot,
@@ -53,10 +84,27 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
   billingConnection,
   onConnectBilling,
   onSyncBilling,
+  slotStatuses,
 }) => {
-  const [quantityStr, setQuantityStr] = useState<string>(String(lastSavedQuantity || 80));
-  const [prepTime, setPrepTime] = useState<string>(lastSavedPrepTime || '18:30');
-  const [closingTime, setClosingTime] = useState<string>(lastSavedClosingTime || '21:30');
+  // Hold form draft state per meal so switching slots preserves drafts without leaking
+  const [drafts, setDrafts] = useState<Record<MealSlot, MealSlotDraft>>(() => ({
+    morning: getDefaultDraftForSlot('morning', mealSlotWindows, {
+      quantity: activeMealSlot === 'morning' && isSaved ? lastSavedQuantity : undefined,
+      prepTime: activeMealSlot === 'morning' && isSaved ? lastSavedPrepTime : undefined,
+      closingTime: activeMealSlot === 'morning' && isSaved ? lastSavedClosingTime : undefined,
+    }),
+    afternoon: getDefaultDraftForSlot('afternoon', mealSlotWindows, {
+      quantity: activeMealSlot === 'afternoon' && isSaved ? lastSavedQuantity : undefined,
+      prepTime: activeMealSlot === 'afternoon' && isSaved ? lastSavedPrepTime : undefined,
+      closingTime: activeMealSlot === 'afternoon' && isSaved ? lastSavedClosingTime : undefined,
+    }),
+    night: getDefaultDraftForSlot('night', mealSlotWindows, {
+      quantity: activeMealSlot === 'night' && isSaved ? lastSavedQuantity : undefined,
+      prepTime: activeMealSlot === 'night' && isSaved ? lastSavedPrepTime : undefined,
+      closingTime: activeMealSlot === 'night' && isSaved ? lastSavedClosingTime : undefined,
+    }),
+  }));
+
   const [errors, setErrors] = useState<{
     quantity?: string;
     prepTime?: string;
@@ -64,24 +112,46 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
   }>({});
 
   const currentWindow = mealSlotWindows[activeMealSlot] || DEFAULT_MEAL_SLOT_WINDOWS[activeMealSlot];
-
   const currentMealSlot = getCurrentMealSlot(mealSlotWindows);
   const toast = useToast();
+  const mealLabel = MEAL_SLOT_LABELS[activeMealSlot];
 
-  // Sync state whenever meal slot or saved values change
+  // If saved values for this slot change (e.g. from parent state update), sync the draft for this slot
   useEffect(() => {
-    setQuantityStr(String(lastSavedQuantity || 80));
-    setPrepTime(lastSavedPrepTime || (activeMealSlot === 'morning' ? '07:00' : activeMealSlot === 'afternoon' ? '12:30' : '18:30'));
-    setClosingTime(lastSavedClosingTime || (activeMealSlot === 'morning' ? '10:00' : activeMealSlot === 'afternoon' ? '15:00' : '21:30'));
+    if (isSaved) {
+      setDrafts((prev) => ({
+        ...prev,
+        [activeMealSlot]: {
+          quantityStr: String(lastSavedQuantity),
+          prepTime: lastSavedPrepTime,
+          closingTime: lastSavedClosingTime,
+        },
+      }));
+    }
     setErrors({});
-  }, [activeMealSlot, lastSavedQuantity, lastSavedPrepTime, lastSavedClosingTime]);
+  }, [activeMealSlot, isSaved, lastSavedQuantity, lastSavedPrepTime, lastSavedClosingTime]);
+
+  const activeDraft = drafts[activeMealSlot] || getDefaultDraftForSlot(activeMealSlot, mealSlotWindows);
+  const quantityStr = activeDraft.quantityStr;
+  const prepTime = activeDraft.prepTime;
+  const closingTime = activeDraft.closingTime;
+
+  const updateActiveDraft = (field: keyof MealSlotDraft, value: string) => {
+    setDrafts((prev) => ({
+      ...prev,
+      [activeMealSlot]: {
+        ...(prev[activeMealSlot] || getDefaultDraftForSlot(activeMealSlot, mealSlotWindows)),
+        [field]: value,
+      },
+    }));
+  };
 
   const validate = (): boolean => {
     const newErrors: { quantity?: string; prepTime?: string; closingTime?: string } = {};
 
     // 1. Quantity validation
     if (!quantityStr.trim()) {
-      newErrors.quantity = 'Portions prepared is required';
+      newErrors.quantity = `${mealLabel} portions prepared is required`;
     } else {
       const q = Number(quantityStr);
       if (isNaN(q) || q <= 0) {
@@ -122,7 +192,23 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
       preparationTime: prepTime,
       closingTime,
     });
-    toast.success(`${getMealSlotLabel(activeMealSlot)} production logged: ${qty} portions`);
+    toast.success(`${mealLabel} production logged: ${qty} portions`);
+  };
+
+  const getStatusBadgeClasses = (status: MealSlotStatus) => {
+    switch (status) {
+      case 'Locked':
+        return 'bg-slate-200 text-slate-700 border-slate-300';
+      case 'Scheduled':
+        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+      case 'Confirmed':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+      case 'Saved':
+        return 'bg-sky-100 text-sky-800 border-sky-300';
+      case 'Not started':
+      default:
+        return 'bg-slate-100 text-slate-500 border-slate-200';
+    }
   };
 
   return (
@@ -153,6 +239,8 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
             const isSelected = activeMealSlot === slot.id;
             const isCurrentClock = currentMealSlot === slot.id;
             const slotWindow = mealSlotWindows[slot.id] || DEFAULT_MEAL_SLOT_WINDOWS[slot.id];
+            const slotLabel = MEAL_SLOT_LABELS[slot.id];
+            const status: MealSlotStatus = slotStatuses?.[slot.id] || (isSelected && isSaved ? 'Saved' : 'Not started');
 
             return (
               <button
@@ -167,7 +255,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span>{slot.label}</span>
+                  <span>{slotLabel}</span>
                   {isCurrentClock && (
                     <span
                       title="Current active meal by clock"
@@ -180,6 +268,13 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 <span className={`text-[10px] font-normal mt-0.5 ${isSelected ? 'text-slate-500' : 'text-slate-400'}`}>
                   {slotWindow.start}–{slotWindow.end}
                 </span>
+                {/* Status chip per meal slot */}
+                <span
+                  id={`slot-status-chip-${slot.id}`}
+                  className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium border mt-1 ${getStatusBadgeClasses(status)}`}
+                >
+                  {status}
+                </span>
               </button>
             );
           })}
@@ -191,7 +286,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
         <div className="flex items-center gap-2">
           <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
           <span className="text-slate-600">
-            {getMealSlotLabel(activeMealSlot)} window:
+            {mealLabel} window:
           </span>
           <span className="font-semibold text-slate-800 font-mono">
             {currentWindow.start} – {currentWindow.end}
@@ -209,13 +304,13 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
               </div>
               <div>
                 <div className="text-[11px] font-semibold tracking-wider uppercase text-emerald-800">
-                  {getMealSlotLabel(activeMealSlot)} Production Logged
+                  {mealLabel} Production Logged
                 </div>
                 <p
                   id="meal-production-summary"
                   className="text-sm font-semibold text-slate-800 mt-0.5 tracking-tight"
                 >
-                  {getMealSlotLabel(activeMealSlot)}: {quantityStr || lastSavedQuantity} portions prepared at {formatTime12(prepTime || lastSavedPrepTime)}, closing {formatTime12(closingTime || lastSavedClosingTime)}.
+                  {mealLabel}: {quantityStr || lastSavedQuantity} portions prepared at {formatTime12(prepTime || lastSavedPrepTime)}, closing {formatTime12(closingTime || lastSavedClosingTime)}.
                 </p>
               </div>
             </div>
@@ -250,10 +345,10 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">
-                  {getMealSlotLabel(activeMealSlot)} Kitchen Output
+                  {mealLabel} Kitchen Output
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Enter portions prepared and service hours for {getMealSlotLabel(activeMealSlot).toLowerCase()}
+                  Enter portions prepared and service hours for {mealLabel.toLowerCase()}
                 </p>
               </div>
             </div>
@@ -274,7 +369,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 value={quantityStr}
                 disabled={disabled}
                 onChange={(e) => {
-                  setQuantityStr(e.target.value);
+                  updateActiveDraft('quantityStr', e.target.value);
                   if (errors.quantity) setErrors((prev) => ({ ...prev, quantity: undefined }));
                 }}
                 className={`w-full px-3.5 py-2.5 text-sm rounded-xl border bg-white text-slate-900 font-medium transition-colors focus:outline-hidden focus:ring-2 ${
@@ -301,7 +396,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 value={prepTime}
                 disabled={disabled}
                 onChange={(e) => {
-                  setPrepTime(e.target.value);
+                  updateActiveDraft('prepTime', e.target.value);
                   if (errors.prepTime) setErrors((prev) => ({ ...prev, prepTime: undefined }));
                 }}
                 className={`w-full px-3.5 py-2.5 text-sm rounded-xl border bg-white text-slate-900 font-medium transition-colors focus:outline-hidden focus:ring-2 ${
@@ -323,7 +418,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 <label htmlFor="meal-production-closingtime" className="block text-xs font-semibold text-slate-700">
                   Closing Time
                 </label>
-                <span className="text-[10px] text-slate-400">Per provider</span>
+                <span className="text-[10px] text-slate-400">{mealLabel} closing</span>
               </div>
               <input
                 id="meal-production-closingtime"
@@ -331,7 +426,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
                 value={closingTime}
                 disabled={disabled}
                 onChange={(e) => {
-                  setClosingTime(e.target.value);
+                  updateActiveDraft('closingTime', e.target.value);
                   if (errors.closingTime) setErrors((prev) => ({ ...prev, closingTime: undefined }));
                 }}
                 className={`w-full px-3.5 py-2.5 text-sm rounded-xl border bg-white text-slate-900 font-medium transition-colors focus:outline-hidden focus:ring-2 ${
@@ -350,7 +445,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
 
           <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <p className="text-xs text-slate-500">
-              Values update {getMealSlotLabel(activeMealSlot).toLowerCase()}&apos;s surplus estimate and collection deadline.
+              Values update {mealLabel.toLowerCase()}&apos;s surplus estimate and collection deadline.
             </p>
             <Button
               type="submit"
@@ -360,7 +455,7 @@ export const MealProductionSection: React.FC<MealProductionSectionProps> = ({
               disabled={disabled}
               icon={<Check className="h-4 w-4" />}
             >
-              Save {getMealSlotLabel(activeMealSlot)}
+              Save {mealLabel}
             </Button>
           </div>
         </form>

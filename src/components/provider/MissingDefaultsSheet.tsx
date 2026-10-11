@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { FoodCategory, StorageType, ProviderDefaults } from '../../types/surplusLink';
+import { FoodCategory, StorageType, ProviderDefaults, MealSlot } from '../../types/surplusLink';
 import { Check } from 'lucide-react';
 import { BottomSheet } from '../shared/BottomSheet';
 import { Button } from '../shared/Button';
 import { useToast } from '../shared/Toast';
+import { MEAL_SLOT_LABELS } from '../../utils/posAndPredictionUtils';
 
 interface MissingDefaultsSheetProps {
   isOpen: boolean;
   onClose: () => void;
   currentDefaults?: ProviderDefaults;
   onSaveDefaults: (defaults: ProviderDefaults) => void;
+  mealSlot?: MealSlot;
+  defaultClosing?: string;
 }
 
 export const MissingDefaultsSheet: React.FC<MissingDefaultsSheetProps> = ({
@@ -17,11 +20,15 @@ export const MissingDefaultsSheet: React.FC<MissingDefaultsSheetProps> = ({
   onClose,
   currentDefaults,
   onSaveDefaults,
+  mealSlot = 'night',
+  defaultClosing,
 }) => {
-  const [foodItem, setFoodItem] = useState(currentDefaults?.usualFoodItem || 'Fresh Evening Meals');
+  const mealLabel = MEAL_SLOT_LABELS[mealSlot] || 'Dinner';
+  const initialClosing = defaultClosing || currentDefaults?.closingTime || (mealSlot === 'morning' ? '10:00' : mealSlot === 'afternoon' ? '15:00' : '21:30');
+  const [foodItem, setFoodItem] = useState(currentDefaults?.usualFoodItem || `Fresh ${mealLabel} Meals`);
   const [category, setCategory] = useState<FoodCategory>(currentDefaults?.category || 'cooked_meal');
   const [storageType, setStorageType] = useState<StorageType>(currentDefaults?.storageType || 'hot_held');
-  const [closingTime, setClosingTime] = useState(currentDefaults?.closingTime || '21:30');
+  const [closingTime, setClosingTime] = useState(initialClosing);
   const toast = useToast();
 
   useEffect(() => {
@@ -29,9 +36,16 @@ export const MissingDefaultsSheet: React.FC<MissingDefaultsSheetProps> = ({
       if (currentDefaults.usualFoodItem) setFoodItem(currentDefaults.usualFoodItem);
       if (currentDefaults.category) setCategory(currentDefaults.category);
       if (currentDefaults.storageType) setStorageType(currentDefaults.storageType);
-      if (currentDefaults.closingTime) setClosingTime(currentDefaults.closingTime);
+      if (currentDefaults.closingTime) {
+        setClosingTime(currentDefaults.closingTime);
+      } else if (defaultClosing) {
+        setClosingTime(defaultClosing);
+      }
+    } else {
+      setFoodItem(`Fresh ${mealLabel} Meals`);
+      if (defaultClosing) setClosingTime(defaultClosing);
     }
-  }, [currentDefaults, isOpen]);
+  }, [currentDefaults, isOpen, defaultClosing, mealLabel]);
 
   const categories: { label: string; value: FoodCategory }[] = [
     { label: 'Cooked Meals', value: 'cooked_meal' },
@@ -50,7 +64,7 @@ export const MissingDefaultsSheet: React.FC<MissingDefaultsSheetProps> = ({
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveDefaults({
-      usualFoodItem: foodItem.trim() || 'Evening Surplus Meals',
+      usualFoodItem: foodItem.trim() || `${mealLabel} Surplus Meals`,
       category,
       storageType,
       closingTime,
@@ -58,7 +72,7 @@ export const MissingDefaultsSheet: React.FC<MissingDefaultsSheetProps> = ({
       usualSoldQty: currentDefaults?.usualSoldQty || 50,
       usualDiscardQty: currentDefaults?.usualDiscardQty || 2,
     });
-    toast.success('Saved kitchen defaults for today and future donations');
+    toast.success(`Saved kitchen defaults for ${mealLabel.toLowerCase()} and future donations`);
     onClose();
   };
 
@@ -78,7 +92,7 @@ export const MissingDefaultsSheet: React.FC<MissingDefaultsSheetProps> = ({
             required
             value={foodItem}
             onChange={(e) => setFoodItem(e.target.value)}
-            placeholder="e.g. Buns, Sandwich Loaves & Veg Puffs"
+            placeholder={`e.g. Fresh ${mealLabel} Meals`}
             className="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium text-slate-900"
           />
         </div>

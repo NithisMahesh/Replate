@@ -190,7 +190,10 @@ export const ProviderShell: React.FC = () => {
   const predicted = useMemo(() => calculateRollingAverageSurplus(history, activeMealSlot, selectedProvider.type), [history, activeMealSlot, selectedProvider.type]);
 
   // Header status chip
-  const isSkipped = Boolean(selectedProvider.isSkippedTonight);
+  const isSkipped = Boolean(
+    selectedProvider.skippedMealSlots?.[activeMealSlot] ??
+    (activeMealSlot === 'night' ? selectedProvider.isSkippedTonight : false)
+  );
   let statusText = 'Ready today';
   let statusVariant: 'ready' | 'scheduled' | 'collected' | 'delivered' | 'skipped' | 'idle' = 'idle';
 
@@ -219,7 +222,7 @@ export const ProviderShell: React.FC = () => {
     else if (['Received', 'Distributed'].includes(tonightDonation.status)) statusVariant = 'delivered';
   }
 
-  const hasSavedProductionForMeal = Boolean(mealProd || (activeMealSlot === 'night' && selectedProvider.lastProduction) || tonightDonation);
+  const hasSavedProductionForMeal = Boolean(mealProd || tonightDonation);
   const isMealLocked = Boolean(tonightDonation && ['Scheduled', 'Collected', 'Received', 'Distributed'].includes(tonightDonation.status));
   const isMealSaved = hasSavedProductionForMeal && !editingSlots[activeMealSlot];
 
@@ -340,8 +343,8 @@ export const ProviderShell: React.FC = () => {
             isSkippedTonight={isSkipped}
             onConfirm={handleConfirm}
             onChangeAmount={() => setIsStepperOpen(true)}
-            onNoSurplusTonight={() => skipTonightDonation(selectedProvider.id)}
-            onUnskip={() => unskipTonightDonation(selectedProvider.id)}
+            onNoSurplusTonight={() => skipTonightDonation(selectedProvider.id, activeMealSlot)}
+            onUnskip={() => unskipTonightDonation(selectedProvider.id, activeMealSlot)}
             onOpenMissingDetails={() => setIsMissingDefaultsOpen(true)}
             isApproved={selectedProvider.isApproved !== false}
             exclusionBanner={exclusionBanner}

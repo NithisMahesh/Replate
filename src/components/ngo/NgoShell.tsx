@@ -34,6 +34,7 @@ export const NgoShell: React.FC = () => {
     donations,
     collections,
     acceptTripCollection,
+    allocateTrip,
     updateTripDriver,
     updateVehiclePosition,
     updateStopProgress,
@@ -191,38 +192,11 @@ export const NgoShell: React.FC = () => {
   };
 
   const handleAcceptTrip = async (trip: TripPlan) => {
-    const acceptedDonationIds = new Set(trip.stops.map((s) => s.donationId));
-    const newCollectionId = acceptTripCollection(trip, ngo.vehicle.driverName);
+    const newCollectionId = await allocateTrip(trip, ngo.vehicle.driverName);
     setHighlightedTripId(newCollectionId);
-
-    // Remove accepted donations from plan pool and remaining proposals
-    const remainingSelected = selectedDonationIds.filter((id) => !acceptedDonationIds.has(id));
-    setSelectedDonationIds(remainingSelected);
-
-    // Leftover donations in the active meal pool
-    const leftoverDonations = mealPool.filter(
-      (d) => !acceptedDonationIds.has(d.id) && remainingSelected.includes(d.id)
-    );
-
-    // Re-run planning for leftover donations
-    if (leftoverDonations.length > 0) {
-      try {
-        const newPlan = await generateCollectionPlan(
-          leftoverDonations,
-          providers,
-          ngo,
-          plannerConfig,
-          undefined,
-          activeMealSlot
-        );
-        setCollectionPlan(newPlan);
-      } catch {
-        setCollectionPlan(null);
-      }
-    } else {
-      setCollectionPlan(null);
-    }
-
+    setCollectionPlan(null);
+    setIsPlanModalOpen(false);
+    toast.success(`Trip #${trip.tripNumber} accepted and scheduled for ${ngo.vehicle.driverName}!`);
     setActiveTab('pickups');
   };
 

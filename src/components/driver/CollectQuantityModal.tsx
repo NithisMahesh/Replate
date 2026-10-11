@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DerivedStop } from '../../selectors';
-import { CheckCircle2, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
 import { BottomSheet } from '../shared/BottomSheet';
 import { Button } from '../shared/Button';
 
@@ -16,7 +16,8 @@ export const CollectQuantityModal: React.FC<CollectQuantityModalProps> = ({
   onClose,
 }) => {
   const [actualQty, setActualQty] = useState<number>(stop.confirmedPortions);
-  const discrepancy = actualQty - stop.confirmedPortions;
+  const shortfall = Math.max(0, stop.confirmedPortions - actualQty);
+  const isOverConfirmed = actualQty > stop.confirmedPortions;
 
   return (
     <BottomSheet
@@ -33,6 +34,7 @@ export const CollectQuantityModal: React.FC<CollectQuantityModalProps> = ({
             variant="primary"
             size="md"
             icon={<CheckCircle2 className="h-4 w-4" />}
+            disabled={isOverConfirmed}
             onClick={() => onConfirm(actualQty)}
           >
             Record Collection
@@ -57,25 +59,37 @@ export const CollectQuantityModal: React.FC<CollectQuantityModalProps> = ({
           <input
             type="number"
             min="0"
-            max="200"
+            max={stop.confirmedPortions}
             value={actualQty}
             onChange={(e) => setActualQty(Math.max(0, parseInt(e.target.value) || 0))}
             className="w-full px-3 py-2.5 text-base font-semibold border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 bg-white text-slate-900"
           />
           <p className="text-xs text-slate-500">
-            Enter the count loaded into the cargo van. If it differs from confirmed, a discrepancy will be logged.
+            Enter the count loaded into the cargo van. Collected portions cannot exceed confirmed quantity ({stop.confirmedPortions}).
           </p>
         </div>
 
-        {/* Discrepancy Warning */}
-        {discrepancy !== 0 && (
+        {/* Validation Errors & Shortfall Warning */}
+        {isOverConfirmed && (
+          <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-950 space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold text-xs text-rose-900">
+              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+              <span>Cannot exceed confirmed quantity</span>
+            </div>
+            <p className="text-xs text-rose-800 leading-relaxed">
+              Actual collected quantity ({actualQty}) cannot exceed the confirmed {stop.confirmedPortions} portions.
+            </p>
+          </div>
+        )}
+
+        {!isOverConfirmed && shortfall > 0 && (
           <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-950 space-y-1">
             <div className="flex items-center gap-1.5 font-semibold text-xs text-amber-900">
               <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-              <span>Discrepancy: {discrepancy > 0 ? `+${discrepancy}` : discrepancy} portions</span>
+              <span>{shortfall} portion{shortfall === 1 ? '' : 's'} short</span>
             </div>
             <p className="text-xs text-amber-800 leading-relaxed">
-              The driver count differs from the kitchen's confirmed quantity. This will be recorded on the manifest and flagged in the audit logs.
+              Driver picked up {actualQty} portions ({shortfall} portion{shortfall === 1 ? '' : 's'} short of confirmed). This difference is recorded on the manifest and audit log.
             </p>
           </div>
         )}

@@ -182,9 +182,30 @@ export interface FoodDonation {
   driverName?: string;
   estimatedPickupTime?: string;
   failureReason?: string;
+  collectedAt?: string;
   receivedAt?: string;
   distributedAt?: string;
   exclusionRecord?: ExcludedDonationRecord;
+}
+
+export type EventLogType =
+  | 'Confirmed'
+  | 'Accepted'
+  | 'Scheduled'
+  | 'Collected'
+  | 'Received'
+  | 'Distributed'
+  | 'Failed'
+  | 'Expired';
+
+export interface EventLogEntry {
+  id: string;
+  time: string;
+  type: EventLogType;
+  donationId?: string;
+  collectionId?: string;
+  actor: string;
+  message: string;
 }
 
 export type ExclusionReason =

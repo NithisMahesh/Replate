@@ -382,11 +382,15 @@ export const PickupsTab: React.FC<PickupsTabProps> = ({
                     <span className="text-emerald-900 font-medium">
                       Collected: <strong>{stop.actualPortionsPickedUp} portions</strong>
                     </span>
-                    {stop.portionsDiscrepancy !== 0 && (
+                    {stop.shortfallPortions > 0 ? (
+                      <span className="text-amber-800 font-semibold bg-amber-100 px-2 py-0.5 rounded text-[11px]">
+                        {stop.shortfallPortions} portion{stop.shortfallPortions === 1 ? '' : 's'} short
+                      </span>
+                    ) : stop.portionsDiscrepancy !== 0 ? (
                       <span className="text-amber-800 font-semibold bg-amber-100 px-2 py-0.5 rounded text-[11px]">
                         Discrepancy: {stop.portionsDiscrepancy > 0 ? `+${stop.portionsDiscrepancy}` : stop.portionsDiscrepancy}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 )}
 
